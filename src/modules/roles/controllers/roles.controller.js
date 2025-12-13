@@ -1,0 +1,46 @@
+const roleService = require("../services/role.service");
+
+exports.getRoles = async (req, res, next) => {
+    try {
+        const roles = await roleService.getAllRoles();
+        res.status(200).json({ 
+            success: true, 
+            message: "Lista de roles obtenida", 
+            data: roles 
+        });
+    } catch (err) { next(err); }
+};
+
+exports.createRole = async (req, res, next) => {
+    try {
+        
+        const role = await roleService.createRole(req.body);
+        res.status(201).json({ 
+            success: true, 
+            message: "Rol creado exitosamente", 
+            data: role 
+        });
+    } catch (err) { next(err); }
+};
+
+exports.updateRole = async (req, res, next) => {
+    try {
+        const role = await roleService.updateRole(req.params.id, req.body);
+        res.status(200).json({ 
+            success: true, 
+            message: "Rol actualizado exitosamente", 
+            data: role 
+        });
+    } catch (err) { next(err); }
+};
+
+exports.deleteRole = async (req, res, next) => {
+    try {
+        await roleService.deleteRole(req.params.id);
+        res.status(200).json({ 
+            success: true, 
+            message: "Rol eliminado correctamente",
+            data: null
+        });
+    } catch (err) { next(err); }
+};
