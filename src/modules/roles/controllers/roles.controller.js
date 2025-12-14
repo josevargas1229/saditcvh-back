@@ -11,6 +11,17 @@ exports.getRoles = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
+exports.getRoleCounts = async (req, res, next) => {
+    try {
+        const counts = await roleService.getRoleCounts();
+        res.status(200).json({
+            success: true,
+            message: "Conteo de usuarios por rol obtenido",
+            data: counts
+        });
+    } catch (err) { next(err); }
+};
+
 exports.createRole = async (req, res, next) => {
     try {
         
