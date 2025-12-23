@@ -54,6 +54,23 @@ exports.updateUser = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
+exports.updateUserPermission = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const { municipioId, permissionId, value } = req.body; 
+        // value es un booleano: true para otorgar, false para quitar
+
+        await userService.updateSinglePermission(userId, municipioId, permissionId, value);
+        
+        res.status(200).json({
+            success: true,
+            message: "Permiso actualizado correctamente (Excepción aplicada)"
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
 exports.deleteUser = async (req, res, next) => {
     try {
         await userService.deleteUser(req.params.id);

@@ -5,7 +5,7 @@ exports.getRoles = async (req, res, next) => {
         const roles = await roleService.getAllRoles();
         res.status(200).json({ 
             success: true, 
-            message: "Lista de roles obtenida", 
+            message: "Lista de roles con sus permisos base obtenida", 
             data: roles 
         });
     } catch (err) { next(err); }
@@ -24,11 +24,11 @@ exports.getRoleCounts = async (req, res, next) => {
 
 exports.createRole = async (req, res, next) => {
     try {
-        
+        // req.body ahora puede traer { name: "Editor", permissions: [1, 3, 4] }
         const role = await roleService.createRole(req.body);
         res.status(201).json({ 
             success: true, 
-            message: "Rol creado exitosamente", 
+            message: "Rol y permisos base configurados", 
             data: role 
         });
     } catch (err) { next(err); }

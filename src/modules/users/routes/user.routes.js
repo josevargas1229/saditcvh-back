@@ -12,5 +12,6 @@ router.get("/:id", controller.getUserById);
 router.post("/", controller.createUser);
 router.put("/:id", controller.updateUser);
 router.delete("/:id", controller.deleteUser);
+router.patch("/:userId/permissions", controller.updateUserPermission);
 
 module.exports = router;

@@ -1,8 +1,14 @@
-const { Role, User, UserRole } = require("../../../database/associations"); 
+const { Role, User, Permission, RolePermission } = require("../../../database/associations"); 
 const sequelize = require("../../../config/db");
 
 exports.getAllRoles = async () => {
     return await Role.findAll({
+        include: [{
+            model: Permission,
+            as: 'base_permissions',
+            attributes: { exclude: ["description"] },
+            through: { attributes: [] } // No traer datos de la tabla intermedia
+        }],
         order: [['id', 'ASC']]
     });
 };
@@ -11,11 +17,8 @@ exports.getRoleCounts = async () => {
     try {
         const counts = await Role.findAll({
             attributes: [
-                'id',
-                'name',
+                'id', 'name',
                 [
-                    // MODIFICACIÓN CLAVE: Usamos un JOIN dentro de la subconsulta
-                    // para filtrar solo los usuarios que tienen deleted_at IS NULL.
                     sequelize.literal(`
                         (SELECT COUNT(ur.user_id) 
                          FROM user_roles AS ur
@@ -25,13 +28,8 @@ exports.getRoleCounts = async () => {
                     'userCount' 
                 ]
             ],
-            
-            // Requerido por PostgreSQL
             group: ['Role.id', 'Role.name'], 
-            
             order: [['name', 'ASC']],
-            
-            // Usamos la subconsulta literal para el filtro HAVING también
             having: sequelize.literal(`
                 (SELECT COUNT(ur.user_id) 
                  FROM user_roles AS ur
@@ -40,35 +38,74 @@ exports.getRoleCounts = async () => {
             `),
         });
 
-        // Mapear el resultado al formato limpio que espera el frontend
         return counts.map(role => ({
             roleId: role.id,
             roleName: role.name,
             count: parseInt(role.getDataValue('userCount'), 10)
         }));
-
     } catch (error) {
-        console.error("Error al obtener conteos de roles:", error);
         throw error;
     }
 };
 
+/**
+ * Crea un rol y le asigna sus permisos base
+ * @param {Object} data { name: 'Consultor', permissions: [1, 2, 3] }
+ */
 exports.createRole = async (data) => {
+    const transaction = await sequelize.transaction();
+    try {
+        const existingRole = await Role.findOne({ where: { name: data.name } });
+        if (existingRole) throw new Error("El rol ya existe");
 
-    const existingRole = await Role.findOne({ where: { name: data.name } });
-    if (existingRole) {
-        throw new Error("El rol ya existe");
+        const role = await Role.create({ name: data.name }, { transaction });
+
+        if (data.permissions && data.permissions.length > 0) {
+            const rolePerms = data.permissions.map(pId => ({
+                role_id: role.id,
+                permission_id: pId
+            }));
+            await RolePermission.bulkCreate(rolePerms, { transaction });
+        }
+
+        await transaction.commit();
+        return role;
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
     }
-    return await Role.create(data);
 };
-
 
 exports.updateRole = async (id, data) => {
-    const role = await Role.findByPk(id);
-    if (!role) throw new Error("Rol no encontrado");
-    return await role.update(data);
-};
+    const transaction = await sequelize.transaction();
+    try {
+        const role = await Role.findByPk(id);
+        if (!role) throw new Error("Rol no encontrado");
 
+        await role.update({ name: data.name }, { transaction });
+
+        // Si se envían permisos, actualizamos la tabla intermedia
+        if (data.permissions) {
+            // Borrar permisos actuales
+            await RolePermission.destroy({ where: { role_id: id }, transaction });
+            
+            // Insertar los nuevos
+            if (data.permissions.length > 0) {
+                const rolePerms = data.permissions.map(pId => ({
+                    role_id: id,
+                    permission_id: pId
+                }));
+                await RolePermission.bulkCreate(rolePerms, { transaction });
+            }
+        }
+
+        await transaction.commit();
+        return role;
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
+    }
+};
 
 exports.deleteRole = async (id) => {
     const role = await Role.findByPk(id);
@@ -76,17 +113,13 @@ exports.deleteRole = async (id) => {
     return await role.destroy();
 };
 
-
 exports.getRolesByUserId = async (userId) => {
     const user = await User.findByPk(userId, {
         include: [{ 
             model: Role, 
-            as: 'roles' 
+            as: 'roles',
+            include: [{ model: Permission, as: 'base_permissions' }]
         }],
     });
-
-    if (!user) {
-        return [];
-    }
-    return user.roles ? user.roles.map(role => role.name) : [];
+    return user ? user.roles : [];
 };

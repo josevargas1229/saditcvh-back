@@ -1,5 +1,5 @@
 const sequelize = require("../../../config/db");
-const { User, Role, Cargo } = require("../../../database/associations");
+const { User, Role, Cargo, Permission, RolePermission, Municipio, UserMunicipalityPermission } = require("../../../database/associations");
 const bcrypt = require("bcryptjs");
 const { Op, fn, col, where } = require("sequelize");
 
@@ -132,10 +132,18 @@ exports.getAllUsers = async (query) => {
 
 exports.getUserById = async (id) => {
     return await User.findByPk(id, {
-        attributes: { exclude: ["password"] },
+        attributes: { exclude: ["password", "deleted_at"] },
         include: [
             { model: Cargo, as: 'cargo' },
-            { model: Role, as: 'roles' }
+            { model: Role, as: 'roles' },
+            { 
+                model: UserMunicipalityPermission, 
+                as: 'municipality_access',
+                include: [
+                    { model: Municipio, as: 'municipio', attributes: ['id', 'nombre'] },
+                    { model: Permission, as: 'permission', attributes: ['id', 'name'] }
+                ]
+            }
         ]
     });
 };
@@ -143,23 +151,59 @@ exports.getUserById = async (id) => {
 exports.createUser = async (data, adminId) => {
     const transaction = await sequelize.transaction();
     try {
+        // 1. Validar mínimo un municipio
+        if (!data.municipios || data.municipios.length === 0) {
+            throw new Error("Debe asignar al menos un municipio al usuario");
+        }
+
         if (data.password) {
             data.password = await bcrypt.hash(data.password, 12);
         }
-        // Crear usuario con auditoría
+
+        // 2. Crear usuario
         const newUser = await User.create({
             ...data,
             created_by: adminId,
             updated_by: adminId
         }, { transaction });
 
-        // Asignar Roles
+        // 3. Asignar Roles
         if (data.roles && data.roles.length > 0) {
             await newUser.setRoles(data.roles, { transaction });
+
+            // 4. LÓGICA DE PERMISOS POR MUNICIPIO
+            // Obtenemos los permisos base de los roles asignados
+            const rolesWithPermissions = await Role.findAll({
+                where: { id: data.roles },
+                include: [{ model: Permission, as: 'base_permissions' }]
+            });
+
+            // Extraemos solo los IDs únicos de permisos
+            const permissionIds = new Set();
+            rolesWithPermissions.forEach(role => {
+                role.base_permissions.forEach(p => permissionIds.add(p.id));
+            });
+
+            // Creamos la matriz: Para cada municipio X cada permiso del rol
+            const bulkPermissions = [];
+            data.municipios.forEach(muniId => {
+                permissionIds.forEach(permId => {
+                    bulkPermissions.push({
+                        user_id: newUser.id,
+                        municipio_id: muniId,
+                        permission_id: permId,
+                        is_exception: false
+                    });
+                });
+            });
+
+            if (bulkPermissions.length > 0) {
+                await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
+            }
         }
 
         await transaction.commit();
-        return await exports.getUserById(newUser.id);
+        return await this.getUserById(newUser.id);
 
     } catch (error) {
         await transaction.rollback();
@@ -177,17 +221,51 @@ exports.updateUser = async (id, data, adminId) => {
             data.password = await bcrypt.hash(data.password, 12);
         }
 
-        // Actualizar datos
         await user.update({ ...data, updated_by: adminId }, { transaction });
 
-        // Actualizar Roles
-        if (data.roles) {
-            await user.setRoles(data.roles, { transaction });
+        // Si se envían roles o municipios nuevos, recalculamos la matriz
+        // Nota: En un sistema real, podrías querer algo más fino, pero para empezar
+        // vamos a resetear y recrear si se envían estos datos.
+        if (data.roles || data.municipios) {
+            // Borrar permisos actuales que NO sean excepciones manuales
+            await UserMunicipalityPermission.destroy({ 
+                where: { user_id: id, is_exception: false }, 
+                transaction 
+            });
+
+            if (data.roles) await user.setRoles(data.roles, { transaction });
+
+            const currentRoles = data.roles || (await user.getRoles()).map(r => r.id);
+            const currentMunis = data.municipios || []; // Aquí deberías traer los existentes si no se envían
+
+            if (currentMunis.length > 0) {
+                const rolesWithPermissions = await Role.findAll({
+                    where: { id: currentRoles },
+                    include: [{ model: Permission, as: 'base_permissions' }]
+                });
+
+                const permissionIds = new Set();
+                rolesWithPermissions.forEach(role => {
+                    role.base_permissions.forEach(p => permissionIds.add(p.id));
+                });
+
+                const bulkPermissions = [];
+                currentMunis.forEach(muniId => {
+                    permissionIds.forEach(permId => {
+                        bulkPermissions.push({
+                            user_id: id,
+                            municipio_id: muniId,
+                            permission_id: permId,
+                            is_exception: false
+                        });
+                    });
+                });
+                await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
+            }
         }
 
         await transaction.commit();
-        return await exports.getUserById(id);
-
+        return await this.getUserById(id);
     } catch (error) {
         await transaction.rollback();
         throw error;
@@ -198,4 +276,19 @@ exports.deleteUser = async (id) => {
     const user = await User.findByPk(id);
     if (!user) throw new Error("Usuario no encontrado");
     return await user.destroy();
+};
+
+exports.updateSinglePermission = async (userId, municipioId, permissionId, value) => {
+    if (value === true) {
+        return await UserMunicipalityPermission.upsert({
+            user_id: userId,
+            municipio_id: municipioId,
+            permission_id: permissionId,
+            is_exception: true
+        });
+    } else {
+        return await UserMunicipalityPermission.destroy({
+            where: { user_id: userId, municipio_id: municipioId, permission_id: permissionId }
+        });
+    }
 };
