@@ -1,57 +1,75 @@
+/**
+ * CONTROLADOR: RoleController
+ * DESCRIPCIÓN: Punto de entrada para la administración de perfiles y seguridad.
+ */
 const roleService = require("../services/role.service");
 
+/**
+ * Recupera el listado de roles con su configuración de seguridad.
+ */
 exports.getRoles = async (req, res, next) => {
     try {
         const roles = await roleService.getAllRoles();
-        res.status(200).json({ 
+        return res.status(200).json({ 
             success: true, 
-            message: "Lista de roles con sus permisos base obtenida", 
+            message: "Configuración de roles y privilegios base recuperada.", 
             data: roles 
         });
-    } catch (err) { next(err); }
+    } catch (err) { return next(err); }
 };
 
+/**
+ * Obtiene métricas de distribución de usuarios por perfil.
+ */
 exports.getRoleCounts = async (req, res, next) => {
     try {
         const counts = await roleService.getRoleCounts();
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
-            message: "Conteo de usuarios por rol obtenido",
+            message: "Estadísticas de distribución de perfiles generadas.",
             data: counts
         });
-    } catch (err) { next(err); }
+    } catch (err) { return next(err); }
 };
 
+/**
+ * Registra un nuevo rol con privilegios predefinidos.
+ */
 exports.createRole = async (req, res, next) => {
     try {
-        // req.body ahora puede traer { name: "Editor", permissions: [1, 3, 4] }
         const role = await roleService.createRole(req.body);
-        res.status(201).json({ 
+        return res.status(201).json({ 
             success: true, 
-            message: "Rol y permisos base configurados", 
+            message: "Entidad de rol y matriz de privilegios creada.", 
             data: role 
         });
-    } catch (err) { next(err); }
+    } catch (err) { return next(err); }
 };
 
+/**
+ * Actualiza la información y permisos de un rol existente.
+ */
 exports.updateRole = async (req, res, next) => {
     try {
         const role = await roleService.updateRole(req.params.id, req.body);
-        res.status(200).json({ 
+        return res.status(200).json({ 
             success: true, 
-            message: "Rol actualizado exitosamente", 
+            message: "Actualización de rol y privilegios procesada exitosamente.", 
             data: role 
         });
-    } catch (err) { next(err); }
+    } catch (err) { return next(err); }
 };
 
+/**
+ * Elimina un perfil de la base de datos.
+ */
 exports.deleteRole = async (req, res, next) => {
     try {
         await roleService.deleteRole(req.params.id);
-        res.status(200).json({ 
+        return res.status(200).json({ 
             success: true, 
-            message: "Rol eliminado correctamente",
+            message: "Registro de rol eliminado del sistema.",
             data: null
         });
-    } catch (err) { next(err); }
+    } catch (err) { return next(err); }
 };

@@ -1,18 +1,30 @@
+/**
+ * SERVICIO: RoleService
+ * DESCRIPCIÓN: Gestión de perfiles de usuario y matriz de privilegios base.
+ */
 const { Role, User, Permission, RolePermission } = require("../../../database/associations"); 
 const sequelize = require("../../../config/db");
 
+/**
+ * Recupera todos los roles con su configuración de privilegios base.
+ * @returns {Promise<Array>} Listado de roles y sus permisos asociados.
+ */
 exports.getAllRoles = async () => {
     return await Role.findAll({
         include: [{
             model: Permission,
             as: 'base_permissions',
             attributes: { exclude: ["description"] },
-            through: { attributes: [] } // No traer datos de la tabla intermedia
+            through: { attributes: [] }
         }],
         order: [['id', 'ASC']]
     });
 };
 
+/**
+ * Genera estadísticas de ocupación por rol (Usuarios activos).
+ * @returns {Promise<Array>} Objetos con métricas de uso por perfil.
+ */
 exports.getRoleCounts = async () => {
     try {
         const counts = await Role.findAll({
@@ -49,14 +61,15 @@ exports.getRoleCounts = async () => {
 };
 
 /**
- * Crea un rol y le asigna sus permisos base
- * @param {Object} data { name: 'Consultor', permissions: [1, 2, 3] }
+ * Crea un rol y vincula una colección de permisos atómicos.
+ * @param {Object} data - Definición del rol y array de permission_ids.
+ * @returns {Promise<Object>} Instancia del rol creado bajo transacción.
  */
 exports.createRole = async (data) => {
     const transaction = await sequelize.transaction();
     try {
         const existingRole = await Role.findOne({ where: { name: data.name } });
-        if (existingRole) throw new Error("El rol ya existe");
+        if (existingRole) throw new Error("Conflicto: El identificador de rol ya existe.");
 
         const role = await Role.create({ name: data.name }, { transaction });
 
@@ -76,20 +89,20 @@ exports.createRole = async (data) => {
     }
 };
 
+/**
+ * Actualiza la denominación del rol y sincroniza su matriz de permisos.
+ */
 exports.updateRole = async (id, data) => {
     const transaction = await sequelize.transaction();
     try {
         const role = await Role.findByPk(id);
-        if (!role) throw new Error("Rol no encontrado");
+        if (!role) throw new Error("Registro no localizado.");
 
         await role.update({ name: data.name }, { transaction });
 
-        // Si se envían permisos, actualizamos la tabla intermedia
         if (data.permissions) {
-            // Borrar permisos actuales
             await RolePermission.destroy({ where: { role_id: id }, transaction });
             
-            // Insertar los nuevos
             if (data.permissions.length > 0) {
                 const rolePerms = data.permissions.map(pId => ({
                     role_id: id,
@@ -107,19 +120,11 @@ exports.updateRole = async (id, data) => {
     }
 };
 
+/**
+ * Elimina un rol del catálogo.
+ */
 exports.deleteRole = async (id) => {
     const role = await Role.findByPk(id);
-    if (!role) throw new Error("Rol no encontrado");
+    if (!role) throw new Error("Registro no localizado.");
     return await role.destroy();
-};
-
-exports.getRolesByUserId = async (userId) => {
-    const user = await User.findByPk(userId, {
-        include: [{ 
-            model: Role, 
-            as: 'roles',
-            include: [{ model: Permission, as: 'base_permissions' }]
-        }],
-    });
-    return user ? user.roles : [];
 };

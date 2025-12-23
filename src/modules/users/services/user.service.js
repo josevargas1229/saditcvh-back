@@ -1,36 +1,57 @@
+/**
+ * SERVICIO: UserService
+ * DESCRIPCIÓN: Gestión integral de identidades y administración de la matriz de acceso territorial.
+ */
 const sequelize = require("../../../config/db");
-const { User, Role, Cargo, Permission, RolePermission, Municipio, UserMunicipalityPermission } = require("../../../database/associations");
+const { User, Role, Cargo, Permission, Municipio, UserMunicipalityPermission } = require("../../../database/associations");
 const bcrypt = require("bcryptjs");
 const { Op, fn, col, where } = require("sequelize");
 
+/**
+ * Recupera el perfil y los municipios con acceso para el usuario actual.
+ * @param {number} userId - Identificador del usuario logueado.
+ * @returns {Promise<Object>} Estructura agrupada de territorios y privilegios.
+ */
+exports.getUserAccessTerritories = async (userId) => {
+    const userAccess = await UserMunicipalityPermission.findAll({
+        where: { user_id: userId },
+        include: [
+            { model: Municipio, as: 'municipio', attributes: ['id', 'num', 'nombre'] },
+            { model: Permission, as: 'permission', attributes: ['id', 'name'] }
+        ],
+        attributes: ['is_exception']
+    });
 
+    // Agrupamos la matriz para facilitar el consumo del frontend por municipio
+    const territories = userAccess.reduce((acc, curr) => {
+        const muniId = curr.municipio.id;
+        if (!acc[muniId]) {
+            acc[muniId] = {
+                ...curr.municipio.toJSON(),
+                permisos: []
+            };
+        }
+        acc[muniId].permisos.push(curr.permission.name);
+        return acc;
+    }, {});
+
+    return Object.values(territories);
+};
+
+/**
+ * Consulta avanzada de usuarios con soporte para paginación, filtrado y búsqueda global.
+ */
 exports.getAllUsers = async (query) => {
-    // --------------------
-    // Paginación
-    // --------------------
     const page = parseInt(query.page) || 1;
     const limit = parseInt(query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    // --------------------
-    // Filtros
-    // --------------------
     const whereUser = {};
+    if (query.active !== undefined) whereUser.active = query.active === "true";
+    if (query.cargo_id) whereUser.cargo_id = query.cargo_id;
 
-    if (query.active !== undefined) {
-        whereUser.active = query.active === "true";
-    }
-
-    if (query.cargo_id) {
-        whereUser.cargo_id = query.cargo_id;
-    }
-
-    // --------------------
-    // Búsqueda
-    // --------------------
     if (query.search) {
         const search = `%${query.search}%`;
-
         whereUser[Op.or] = [
             { first_name: { [Op.iLike]: search } },
             { last_name: { [Op.iLike]: search } },
@@ -58,9 +79,6 @@ exports.getAllUsers = async (query) => {
         ];
     }
 
-    // --------------------
-    // Ordenamiento
-    // --------------------
     let order = [["id", "DESC"]];
 
     if (query.sortBy) {
@@ -81,9 +99,6 @@ exports.getAllUsers = async (query) => {
         }
     }
 
-    // --------------------
-    // Query final
-    // --------------------
     const result = await User.findAndCountAll({
         where: whereUser,
         distinct: true,
@@ -129,7 +144,9 @@ exports.getAllUsers = async (query) => {
     };
 };
 
-
+/**
+ * Obtiene el detalle de un usuario incluyendo su matriz de permisos granulares.
+ */
 exports.getUserById = async (id) => {
     return await User.findByPk(id, {
         attributes: { exclude: ["password", "deleted_at"] },
@@ -148,43 +165,37 @@ exports.getUserById = async (id) => {
     });
 };
 
+/**
+ * Proceso transaccional de alta de usuario con propagación de matriz de acceso.
+ */
 exports.createUser = async (data, adminId) => {
     const transaction = await sequelize.transaction();
     try {
-        // 1. Validar mínimo un municipio
         if (!data.municipios || data.municipios.length === 0) {
-            throw new Error("Debe asignar al menos un municipio al usuario");
+            throw new Error("Asignación territorial obligatoria (mínimo 1 municipio).");
         }
 
-        if (data.password) {
-            data.password = await bcrypt.hash(data.password, 12);
-        }
+        if (data.password) data.password = await bcrypt.hash(data.password, 12);
 
-        // 2. Crear usuario
         const newUser = await User.create({
             ...data,
             created_by: adminId,
             updated_by: adminId
         }, { transaction });
 
-        // 3. Asignar Roles
         if (data.roles && data.roles.length > 0) {
             await newUser.setRoles(data.roles, { transaction });
 
-            // 4. LÓGICA DE PERMISOS POR MUNICIPIO
-            // Obtenemos los permisos base de los roles asignados
             const rolesWithPermissions = await Role.findAll({
                 where: { id: data.roles },
                 include: [{ model: Permission, as: 'base_permissions' }]
             });
 
-            // Extraemos solo los IDs únicos de permisos
             const permissionIds = new Set();
             rolesWithPermissions.forEach(role => {
                 role.base_permissions.forEach(p => permissionIds.add(p.id));
             });
 
-            // Creamos la matriz: Para cada municipio X cada permiso del rol
             const bulkPermissions = [];
             data.municipios.forEach(muniId => {
                 permissionIds.forEach(permId => {
@@ -197,37 +208,30 @@ exports.createUser = async (data, adminId) => {
                 });
             });
 
-            if (bulkPermissions.length > 0) {
-                await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
-            }
+            await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
         }
 
         await transaction.commit();
         return await this.getUserById(newUser.id);
-
     } catch (error) {
         await transaction.rollback();
         throw error;
     }
 };
 
+/**
+ * Actualiza la información del usuario y resincroniza la matriz de acceso si hay cambios.
+ */
 exports.updateUser = async (id, data, adminId) => {
     const transaction = await sequelize.transaction();
     try {
         const user = await User.findByPk(id);
-        if (!user) throw new Error("Usuario no encontrado");
+        if (!user) throw new Error("Entidad de usuario no localizada.");
 
-        if (data.password) {
-            data.password = await bcrypt.hash(data.password, 12);
-        }
-
+        if (data.password) data.password = await bcrypt.hash(data.password, 12);
         await user.update({ ...data, updated_by: adminId }, { transaction });
 
-        // Si se envían roles o municipios nuevos, recalculamos la matriz
-        // Nota: En un sistema real, podrías querer algo más fino, pero para empezar
-        // vamos a resetear y recrear si se envían estos datos.
         if (data.roles || data.municipios) {
-            // Borrar permisos actuales que NO sean excepciones manuales
             await UserMunicipalityPermission.destroy({ 
                 where: { user_id: id, is_exception: false }, 
                 transaction 
@@ -236,7 +240,7 @@ exports.updateUser = async (id, data, adminId) => {
             if (data.roles) await user.setRoles(data.roles, { transaction });
 
             const currentRoles = data.roles || (await user.getRoles()).map(r => r.id);
-            const currentMunis = data.municipios || []; // Aquí deberías traer los existentes si no se envían
+            const currentMunis = data.municipios || [];
 
             if (currentMunis.length > 0) {
                 const rolesWithPermissions = await Role.findAll({
@@ -272,12 +276,9 @@ exports.updateUser = async (id, data, adminId) => {
     }
 };
 
-exports.deleteUser = async (id) => {
-    const user = await User.findByPk(id);
-    if (!user) throw new Error("Usuario no encontrado");
-    return await user.destroy();
-};
-
+/**
+ * Gestión manual de excepciones en la matriz de permisos.
+ */
 exports.updateSinglePermission = async (userId, municipioId, permissionId, value) => {
     if (value === true) {
         return await UserMunicipalityPermission.upsert({
@@ -291,4 +292,10 @@ exports.updateSinglePermission = async (userId, municipioId, permissionId, value
             where: { user_id: userId, municipio_id: municipioId, permission_id: permissionId }
         });
     }
+};
+
+exports.deleteUser = async (id) => {
+    const user = await User.findByPk(id);
+    if (!user) throw new Error("Registro no localizado.");
+    return await user.destroy();
 };

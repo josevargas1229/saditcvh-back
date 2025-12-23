@@ -1,23 +1,43 @@
+/**
+ * CONTROLADOR: MunicipioController
+ * DESCRIPCIÓN: Interfaz de comunicación entre las peticiones HTTP y la lógica de negocio de municipios.
+ */
 const municipioService = require("../services/municipio.service");
 
+/**
+ * Manejador para la obtención de todos los municipios.
+ * @param {Request} req - Objeto de petición Express.
+ * @param {Response} res - Objeto de respuesta Express.
+ * @param {Function} next - Función para propagación de middleware de errores.
+ */
 exports.getMunicipios = async (req, res, next) => {
     try {
         const municipios = await municipioService.getAllMunicipios();
-        res.status(200).json({ 
+        return res.status(200).json({ 
             success: true, 
-            message: "Lista de municipios obtenida", 
+            message: "Catálogo de municipios recuperado exitosamente.", 
             data: municipios 
         });
-    } catch (err) { next(err); }
+    } catch (err) { 
+        return next(err); 
+    }
 };
 
+/**
+ * Manejador para la obtención de un municipio por ID.
+ * @param {Request} req - Objeto de petición Express con parámetro 'id'.
+ * @param {Response} res - Objeto de respuesta Express.
+ * @param {Function} next - Función para propagación de middleware de errores.
+ */
 exports.getMunicipioById = async (req, res, next) => {
     try {
         const municipio = await municipioService.getMunicipioById(req.params.id);
-        res.status(200).json({ 
+        return res.status(200).json({ 
             success: true, 
-            message: "Municipio encontrado", 
+            message: "Datos del municipio obtenidos.", 
             data: municipio 
         });
-    } catch (err) { next(err); }
+    } catch (err) { 
+        return next(err); 
+    }
 };
