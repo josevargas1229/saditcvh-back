@@ -22,5 +22,6 @@ router.delete("/:id", controller.deleteUser);
 
 // Gestión de excepciones de permisos
 router.patch("/:userId/permissions", controller.updateUserPermission);
+router.put("/:userId/permissions/batch", controller.updatePermissionsBatch);
 
 module.exports = router;

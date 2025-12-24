@@ -6,22 +6,25 @@ const { Municipio } = require("../../../database/associations");
 
 /**
  * Recupera el catálogo completo de municipios registrados.
- * @returns {Promise<Array>} Listado de municipios ordenados ascendentemente por su identificador numérico.
+ * OPTIMIZACIÓN: Se usa raw: true para evitar sobrecarga de memoria en listas largas.
+ * @returns {Promise<Array>} Listado de municipios ordenados.
  */
 exports.getAllMunicipios = async () => {
     return await Municipio.findAll({
-        order: [['num', 'ASC']]
+        attributes: ['id', 'num', 'nombre'], // Solo traemos lo que usa el modal
+        order: [['num', 'ASC']],
+        raw: true // <--- ¡ESTO ES LA CLAVE! Devuelve JSON simple, no objetos Sequelize pesados.
     });
 };
 
 /**
  * Localiza un municipio específico mediante su identificador primario.
- * @param {number} id - Identificador único de la entidad.
- * @throws {Error} Si el registro no existe en la base de datos.
- * @returns {Promise<Object>} Instancia de la entidad Municipio.
  */
 exports.getMunicipioById = async (id) => {
-    const municipio = await Municipio.findByPk(id);
+    const municipio = await Municipio.findByPk(id, {
+        raw: true // También aquí ayuda si solo vas a leer datos
+    });
+    
     if (!municipio) {
         throw new Error("Municipio no localizado en el catálogo actual.");
     }

@@ -157,7 +157,7 @@ exports.getUserById = async (id) => {
                 model: UserMunicipalityPermission, 
                 as: 'municipality_access',
                 include: [
-                    { model: Municipio, as: 'municipio', attributes: ['id', 'nombre'] },
+                    { model: Municipio, as: 'municipio', attributes: ['id', 'num' ,'nombre'] },
                     { model: Permission, as: 'permission', attributes: ['id', 'name'] }
                 ]
             }
@@ -224,52 +224,85 @@ exports.createUser = async (data, adminId) => {
  */
 exports.updateUser = async (id, data, adminId) => {
     const transaction = await sequelize.transaction();
+    
     try {
-        const user = await User.findByPk(id);
+        const user = await User.findByPk(id, { transaction });
         if (!user) throw new Error("Entidad de usuario no localizada.");
 
+        // 1. Actualizar datos básicos
         if (data.password) data.password = await bcrypt.hash(data.password, 12);
         await user.update({ ...data, updated_by: adminId }, { transaction });
 
-        if (data.roles || data.municipios) {
+        // 2. Lógica de Asignación (Roles y Municipios)
+        const hayCambioMunicipios = data.municipios !== undefined;
+        const hayCambioRoles = data.roles !== undefined;
+
+        if (hayCambioRoles || hayCambioMunicipios) {
+            
+            // A. Actualizar Roles
+            if (hayCambioRoles) await user.setRoles(data.roles, { transaction });
+
+            // B. Determinar Municipios
+            let targetMunicipios = [];
+            if (hayCambioMunicipios) {
+                targetMunicipios = data.municipios; // Lista nueva
+            } else {
+                // Si no se envió lista, mantener los actuales
+                const currentAccess = await UserMunicipalityPermission.findAll({
+                    where: { user_id: id },
+                    attributes: ['municipio_id'],
+                    group: ['municipio_id'],
+                    transaction
+                });
+                targetMunicipios = currentAccess.map(a => a.municipio_id);
+            }
+
+            // C. Limpiar permisos anteriores
             await UserMunicipalityPermission.destroy({ 
                 where: { user_id: id, is_exception: false }, 
                 transaction 
             });
 
-            if (data.roles) await user.setRoles(data.roles, { transaction });
-
-            const currentRoles = data.roles || (await user.getRoles()).map(r => r.id);
-            const currentMunis = data.municipios || [];
-
-            if (currentMunis.length > 0) {
-                const rolesWithPermissions = await Role.findAll({
-                    where: { id: currentRoles },
-                    include: [{ model: Permission, as: 'base_permissions' }]
+            // D. ASIGNACIÓN OPTIMIZADA (Solo permiso 'ver')
+            if (targetMunicipios.length > 0) {
+                
+                // 1. Buscamos el ID del permiso 'ver' (o el que uses para visualizar)
+                // Esto es mucho más rápido que buscar todos los permisos de todos los roles
+                const verPermission = await Permission.findOne({ 
+                    where: { name: 'ver' }, // Asegúrate que en tu BD se llame 'ver'
+                    transaction 
                 });
+                
+                // Si no existe 'ver', usamos el ID 1 como fallback
+                const basePermissionId = verPermission ? verPermission.id : 1;
 
-                const permissionIds = new Set();
-                rolesWithPermissions.forEach(role => {
-                    role.base_permissions.forEach(p => permissionIds.add(p.id));
-                });
+                // 2. Preparamos inserción ligera (1 registro por municipio)
+                const bulkPermissions = targetMunicipios.map(muniId => ({
+                    user_id: id,
+                    municipio_id: muniId,
+                    permission_id: basePermissionId, // <--- AQUÍ ESTÁ EL TRUCO
+                    is_exception: false,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                }));
 
-                const bulkPermissions = [];
-                currentMunis.forEach(muniId => {
-                    permissionIds.forEach(permId => {
-                        bulkPermissions.push({
-                            user_id: id,
-                            municipio_id: muniId,
-                            permission_id: permId,
-                            is_exception: false
-                        });
-                    });
-                });
-                await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
+                // 3. Insertar de golpe
+                if (bulkPermissions.length > 0) {
+                    await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
+                }
+            }
+            
+            // E. Caso limpiar todo
+            if (hayCambioMunicipios && targetMunicipios.length === 0) {
+                 await UserMunicipalityPermission.destroy({ where: { user_id: id }, transaction });
             }
         }
 
         await transaction.commit();
-        return await this.getUserById(id);
+        
+        // Retornamos el usuario actualizado
+        return { id, message: "Sincronizado correctamente" };
+
     } catch (error) {
         await transaction.rollback();
         throw error;
@@ -291,6 +324,68 @@ exports.updateSinglePermission = async (userId, municipioId, permissionId, value
         return await UserMunicipalityPermission.destroy({
             where: { user_id: userId, municipio_id: municipioId, permission_id: permissionId }
         });
+    }
+};
+
+
+/**
+ * Actualización masiva de permisos (Batch Update).
+ * Recibe un array de cambios y los procesa en una sola transacción.
+ */
+exports.updatePermissionsBatch = async (userId, changes) => {
+    const transaction = await sequelize.transaction();
+    try {
+        const toCreate = [];
+        const toDeleteIds = []; // Pares de IDs para borrar
+
+        // 1. Clasificar cambios en memoria (Rapidísimo)
+        for (const change of changes) {
+            const { municipioId, permissionId, value } = change;
+            
+            if (value === true) {
+                // Preparamos para Bulk Create
+                toCreate.push({
+                    user_id: userId,
+                    municipio_id: municipioId,
+                    permission_id: permissionId,
+                    is_exception: true,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                });
+            } else {
+                // Preparamos criterio para borrar
+                toDeleteIds.push({ 
+                    user_id: userId, 
+                    municipio_id: municipioId, 
+                    permission_id: permissionId 
+                });
+            }
+        }
+
+        // 2. Ejecutar Eliminaciones Masivas (1 sola consulta)
+        if (toDeleteIds.length > 0) {
+            await UserMunicipalityPermission.destroy({
+                where: {
+                    [Op.or]: toDeleteIds // Usamos OR para borrar todos los pares específicos de golpe
+                },
+                transaction
+            });
+        }
+
+        // 3. Ejecutar Inserciones Masivas (1 sola consulta)
+        // Usamos updateOnDuplicate para evitar errores si ya existía
+        if (toCreate.length > 0) {
+            await UserMunicipalityPermission.bulkCreate(toCreate, {
+                updateOnDuplicate: ['is_exception', 'updated_at'], 
+                transaction
+            });
+        }
+
+        await transaction.commit();
+        return { success: true };
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
     }
 };
 

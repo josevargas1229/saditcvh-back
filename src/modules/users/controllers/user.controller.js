@@ -3,6 +3,7 @@
  * DESCRIPCIÓN: Puntos de entrada para la administración y consulta de identidades.
  */
 const userService = require("../services/user.service");
+const sequelize = require("../../../config/db");
 
 /**
  * Recupera los territorios (municipios) y privilegios asignados al usuario autenticado.
@@ -57,10 +58,20 @@ exports.createUser = async (req, res, next) => {
     } catch (err) { return next(err); }
 };
 
+/**
+ * Actualiza usuario (Llama al servicio que contiene la lógica de permisos)
+ */
 exports.updateUser = async (req, res, next) => {
     try {
-        const adminId = req.user ? req.user.id : null;
-        const user = await userService.updateUser(req.params.id, req.body, adminId);
+        // 1. Extraemos los datos de la petición (req)
+        const { id } = req.params;     // El ID viene de la URL
+        const data = req.body;         // Los datos (municipios, roles, nombre) vienen del Body
+        const adminId = req.user ? req.user.id : null; // El admin viene del token
+
+        // 2. Llamamos al servicio (Aquí es donde está la magia de transacciones que corregimos antes)
+        const user = await userService.updateUser(id, data, adminId);
+        
+        // 3. Respondemos al cliente
         return res.status(200).json({ 
             success: true, 
             message: "Actualización procesada exitosamente.", 
@@ -72,11 +83,42 @@ exports.updateUser = async (req, res, next) => {
 exports.updateUserPermission = async (req, res, next) => {
     try {
         const { userId } = req.params;
+        // Obtenemos los datos. A veces el front manda null, nos aseguramos de cacharlo.
         const { municipioId, permissionId, value } = req.body; 
+
+        // VALIDACIÓN DE SEGURIDAD
+        if (!municipioId || !permissionId) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Faltan datos obligatorios (municipioId o permissionId)." 
+            });
+        }
+
         await userService.updateSinglePermission(userId, municipioId, permissionId, value);
+        
         return res.status(200).json({
             success: true,
-            message: "Excepción de seguridad aplicada correctamente."
+            message: "Permiso actualizado correctamente."
+        });
+    } catch (err) { 
+        return next(err); 
+    }
+};
+
+exports.updatePermissionsBatch = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const { changes } = req.body; // Array de cambios
+
+        if (!changes || !Array.isArray(changes)) {
+            return res.status(400).json({ success: false, message: "Formato de datos incorrecto." });
+        }
+
+        await userService.updatePermissionsBatch(userId, changes);
+        
+        return res.status(200).json({
+            success: true,
+            message: "Permisos actualizados correctamente."
         });
     } catch (err) { return next(err); }
 };
