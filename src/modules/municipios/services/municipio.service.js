@@ -11,9 +11,10 @@ const { Municipio } = require("../../../database/associations");
  */
 exports.getAllMunicipios = async () => {
     return await Municipio.findAll({
-        attributes: ['id', 'num', 'nombre'], // Solo traemos lo que usa el modal
+        where: { active: true },
+        attributes: ['id', 'num', 'nombre'],
         order: [['num', 'ASC']],
-        raw: true // <--- ¡ESTO ES LA CLAVE! Devuelve JSON simple, no objetos Sequelize pesados.
+        raw: true // Devuelve JSON simple, no objetos Sequelize pesados.
     });
 };
 
@@ -22,7 +23,8 @@ exports.getAllMunicipios = async () => {
  */
 exports.getMunicipioById = async (id) => {
     const municipio = await Municipio.findByPk(id, {
-        raw: true // También aquí ayuda si solo vas a leer datos
+        where: { id, active: true },
+        raw: true
     });
     
     if (!municipio) {

@@ -1,6 +1,7 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../../../config/db");
 const bcrypt = require("bcryptjs");
+const { handleModelAudit } = require("../../audit/utils/auditHelper");
 
 const User = sequelize.define("User", {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -68,7 +69,12 @@ const User = sequelize.define("User", {
     schema: "public",
     underscored: true,
     timestamps: true,
-    paranoid: true
+    paranoid: true,
+    hooks: {
+        afterCreate: (instance, options) => handleModelAudit(instance, options, 'CREATE'),
+        afterUpdate: (instance, options) => handleModelAudit(instance, options, 'UPDATE'),
+        afterDestroy: (instance, options) => handleModelAudit(instance, options, 'DELETE')
+    }
 });
 
 module.exports = User;

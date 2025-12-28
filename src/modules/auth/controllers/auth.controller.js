@@ -1,4 +1,5 @@
 const authService = require("../services/auth.service");
+const auditService = require("../../audit/services/audit.service"); // Importar auditoría
 const { badRequest, unauthorized } = require("../../../utils/errorResponse");
 const { User, Role } = require("../../../database/associations");
 const jwtConfig = require("../../../config/jwt");
@@ -33,6 +34,17 @@ exports.login = async (req, res, next) => {
             password
         );
 
+        req.user = user
+
+        // REGISTRO EN BITÁCORA: Login Exitoso
+       // Ahora pasamos el req real, completo con sus headers y métodos
+        await auditService.createLog(req, { 
+            action: 'LOGIN',
+            module: 'AUTH',
+            entityId: user.id,
+            details: { status: 'success', method: 'password' }
+        });
+
         // 1. Access Token
         res.cookie("accessToken", accessToken, {
             ...COOKIE_OPTIONS,
@@ -51,6 +63,13 @@ exports.login = async (req, res, next) => {
             user: user, 
         });
     } catch (err) {
+        // REGISTRO EN BITÁCORA: Intento fallido
+        // Como no hay req.user, el servicio guardará "Sistema/Anónimo" por defecto
+        await auditService.createLog(req, {
+            action: 'LOGIN_ATTEMPT',
+            module: 'AUTH',
+            details: { status: 'failed', username: req.body.username, reason: err.message }
+        });
         next(err);
     }
 };
@@ -60,7 +79,17 @@ exports.login = async (req, res, next) => {
  */
 exports.logout = async (req, res, next) => {
     try {
+        // 1. Registrar primero (mientras req.user existe gracias al middleware protect)
+        if (req.user) {
+            await auditService.createLog(req, {
+                action: 'LOGOUT',
+                module: 'AUTH',
+                entityId: req.user.id,
+                details: { status: 'success' }
+            });
+        }
 
+        // 2. Luego limpiar cookies
         res.clearCookie("accessToken", COOKIE_OPTIONS);
         res.clearCookie("refreshToken", COOKIE_OPTIONS);
 

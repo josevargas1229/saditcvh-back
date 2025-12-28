@@ -4,26 +4,22 @@
  * Implementa una lógica de control de acceso basada en la relación Usuario-Municipio-Permiso.
  */
 
-const { UserMunicipalityPermission, Permission } = require("../../../database/associations");
+const { UserMunicipalityPermission, Permission, Municipio } = require("../../../database/associations");
 
 /**
- * Verifica si el usuario autenticado posee los privilegios necesarios para ejecutar 
- * una acción sobre un municipio específico.
- * * @param {string} requiredPermissionName - Identificador de la acción (ver, editar, eliminar, etc.).
- * @returns {Function}
+ * Verifica privilegios granulares validando que la relación, 
+ * el permiso y el municipio estén activos y no borrados.
  */
 const checkPermission = (requiredPermissionName) => {
     return async (req, res, next) => {
         try {
             const userId = req.user.id;
-            
-            // Extracción del identificador de entidad desde el cuerpo o parámetros de la petición.
             const municipioId = req.body.municipioId || req.params.municipioId || req.query.municipioId;
 
             if (!municipioId) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: "Identificador de municipio (municipioId) no proporcionado." 
+                    message: "Identificador de municipio no proporcionado." 
                 });
             }
 
@@ -35,16 +31,26 @@ const checkPermission = (requiredPermissionName) => {
             const permissionRegistry = await UserMunicipalityPermission.findOne({
                 where: {
                     user_id: userId,
-                    municipio_id: municipioId
+                    municipio_id: municipioId,
+                    active: true // Debe estar marcado como activo
                 },
-                include: [{
-                    model: Permission,
-                    as: 'permission',
-                    where: { name: requiredPermissionName }
-                }]
+                include: [
+                    {
+                        model: Permission,
+                        as: 'permission',
+                        where: { 
+                            name: requiredPermissionName,
+                            active: true // El permiso base debe estar activo
+                        }
+                    },
+                    {
+                        model: Municipio,
+                        as: 'municipio',
+                        where: { active: true } // El municipio debe estar vigente
+                    }
+                ]
             });
 
-            // En caso de no existir una relación explícita, se deniega el acceso (Principio de Menor Privilegio).
             if (!permissionRegistry) {
                 return res.status(403).json({
                     success: false,
@@ -54,7 +60,6 @@ const checkPermission = (requiredPermissionName) => {
 
             return next();
         } catch (error) {
-            // Propagación del error al manejador global de excepciones.
             return next(error);
         }
     };

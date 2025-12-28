@@ -49,7 +49,7 @@ exports.getUserById = async (req, res, next) => {
 exports.createUser = async (req, res, next) => {
     try {
         const adminId = req.user ? req.user.id : null; 
-        const user = await userService.createUser(req.body, adminId);
+        const user = await userService.createUser(req.body, adminId, req);
         return res.status(201).json({ 
             success: true, 
             message: "Usuario registrado y matriz propagada.", 
@@ -69,7 +69,7 @@ exports.updateUser = async (req, res, next) => {
         const adminId = req.user ? req.user.id : null; // El admin viene del token
 
         // 2. Llamamos al servicio (Aquí es donde está la magia de transacciones que corregimos antes)
-        const user = await userService.updateUser(id, data, adminId);
+       const user = await userService.updateUser(id, data, adminId, req);
         
         // 3. Respondemos al cliente
         return res.status(200).json({ 
@@ -94,7 +94,7 @@ exports.updateUserPermission = async (req, res, next) => {
             });
         }
 
-        await userService.updateSinglePermission(userId, municipioId, permissionId, value);
+        await userService.updateSinglePermission(userId, municipioId, permissionId, value, req);
         
         return res.status(200).json({
             success: true,
@@ -114,7 +114,7 @@ exports.updatePermissionsBatch = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Formato de datos incorrecto." });
         }
 
-        await userService.updatePermissionsBatch(userId, changes);
+        await userService.updatePermissionsBatch(userId, changes, req);
         
         return res.status(200).json({
             success: true,
@@ -125,7 +125,7 @@ exports.updatePermissionsBatch = async (req, res, next) => {
 
 exports.deleteUser = async (req, res, next) => {
     try {
-        await userService.deleteUser(req.params.id);
+        await userService.deleteUser(req.params.id, req);
         return res.status(200).json({ success: true, message: "Registro eliminado." });
     } catch (err) { return next(err); }
 };

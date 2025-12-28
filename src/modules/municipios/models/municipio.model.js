@@ -18,6 +18,10 @@ const Municipio = sequelize.define("Municipio", {
     nombre: { 
         type: DataTypes.STRING(150), 
         allowNull: false 
+    },
+    active: { 
+        type: DataTypes.BOOLEAN, 
+        defaultValue: true
     }
 }, {
     tableName: "municipios",

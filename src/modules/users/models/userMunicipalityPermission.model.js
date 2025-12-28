@@ -20,14 +20,18 @@ const UserMunicipalityPermission = sequelize.define("UserMunicipalityPermission"
     },
     is_exception: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        //Si es true, este permiso fue editado manualmente y no depende del rol
+        defaultValue: false
+    },
+    active: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
     }
 }, {
     tableName: "user_municipality_permissions",
     schema: "public",
-    timestamps: true, // Útil para saber cuándo se dio el permiso
+    timestamps: true,
     underscored: true,
+    paranoid: true
 });
 
 module.exports = UserMunicipalityPermission;
