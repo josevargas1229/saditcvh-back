@@ -333,27 +333,27 @@ exports.updateSinglePermission = async (userId, municipioId, permissionId, value
  * Recibe un array de cambios y los procesa en una sola transacción.
  */
 exports.updatePermissionsBatch = async (userId, changes) => {
+    // Usamos transacción para seguridad
     const transaction = await sequelize.transaction();
+    
     try {
         const toCreate = [];
-        const toDeleteIds = []; // Pares de IDs para borrar
+        const toDeleteIds = [];
 
-        // 1. Clasificar cambios en memoria (Rapidísimo)
+        // 1. Clasificación en memoria (Esto toma microsegundos)
         for (const change of changes) {
             const { municipioId, permissionId, value } = change;
             
             if (value === true) {
-                // Preparamos para Bulk Create
                 toCreate.push({
                     user_id: userId,
                     municipio_id: municipioId,
                     permission_id: permissionId,
-                    is_exception: true,
+                    is_exception: true, // Si usas excepciones
                     created_at: new Date(),
                     updated_at: new Date()
                 });
             } else {
-                // Preparamos criterio para borrar
                 toDeleteIds.push({ 
                     user_id: userId, 
                     municipio_id: municipioId, 
@@ -362,29 +362,42 @@ exports.updatePermissionsBatch = async (userId, changes) => {
             }
         }
 
-        // 2. Ejecutar Eliminaciones Masivas (1 sola consulta)
+        // 2. EJECUCIÓN PARALELA (Aquí está la velocidad) ⚡
+        // Lanzamos ambas operaciones a la BD al mismo tiempo
+        const promises = [];
+
+        // A. Eliminar (Si hay algo que borrar)
         if (toDeleteIds.length > 0) {
-            await UserMunicipalityPermission.destroy({
-                where: {
-                    [Op.or]: toDeleteIds // Usamos OR para borrar todos los pares específicos de golpe
-                },
-                transaction
-            });
+            promises.push(
+                UserMunicipalityPermission.destroy({
+                    where: {
+                        [Op.or]: toDeleteIds // El índice compuesto hará que esto sea instantáneo
+                    },
+                    transaction
+                })
+            );
         }
 
-        // 3. Ejecutar Inserciones Masivas (1 sola consulta)
-        // Usamos updateOnDuplicate para evitar errores si ya existía
+        // B. Insertar (Si hay algo que crear)
         if (toCreate.length > 0) {
-            await UserMunicipalityPermission.bulkCreate(toCreate, {
-                updateOnDuplicate: ['is_exception', 'updated_at'], 
-                transaction
-            });
+            // updateOnDuplicate: Si ya existe, no falla, solo actualiza
+            promises.push(
+                UserMunicipalityPermission.bulkCreate(toCreate, {
+                    updateOnDuplicate: ['is_exception', 'updated_at'], 
+                    transaction
+                })
+            );
         }
+
+        // Esperamos a que ambas terminen
+        await Promise.all(promises);
 
         await transaction.commit();
         return { success: true };
+
     } catch (error) {
         await transaction.rollback();
+        console.error("Error en batch update:", error);
         throw error;
     }
 };
