@@ -11,11 +11,14 @@ const sequelize = require("../../../config/db");
  */
 exports.getAllRoles = async () => {
     return await Role.findAll({
+        where: { active: true },
         include: [{
             model: Permission,
             as: 'base_permissions',
+            where: { active: true },
             attributes: { exclude: ["description"] },
-            through: { attributes: [] }
+            through: { attributes: [] },
+            required: false
         }],
         order: [['id', 'ASC']]
     });
@@ -35,11 +38,14 @@ exports.getRoleCounts = async () => {
                         (SELECT COUNT(ur.user_id) 
                          FROM user_roles AS ur
                          INNER JOIN users AS u ON u.id = ur.user_id
-                         WHERE ur.role_id = "Role".id AND u.deleted_at IS NULL)
+                         WHERE ur.role_id = "Role".id 
+                         AND u.deleted_at IS NULL 
+                         AND u.active = true)
                     `),
                     'userCount' 
                 ]
             ],
+            where: { active: true },
             group: ['Role.id', 'Role.name'], 
             order: [['name', 'ASC']],
             having: sequelize.literal(`
@@ -101,7 +107,10 @@ exports.updateRole = async (id, data) => {
         await role.update({ name: data.name }, { transaction });
 
         if (data.permissions) {
-            await RolePermission.destroy({ where: { role_id: id }, transaction });
+            await RolePermission.destroy({ 
+                where: { role_id: id }, 
+                transaction 
+            });
             
             if (data.permissions.length > 0) {
                 const rolePerms = data.permissions.map(pId => ({
@@ -126,5 +135,6 @@ exports.updateRole = async (id, data) => {
 exports.deleteRole = async (id) => {
     const role = await Role.findByPk(id);
     if (!role) throw new Error("Registro no localizado.");
-    return await role.destroy();
+    await role.update({ active: false }); 
+    return await role.destroy(); 
 };

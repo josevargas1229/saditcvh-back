@@ -5,6 +5,7 @@ const { Permission } = require("../../../database/associations");
  */
 exports.getAllPermissions = async () => {
     return await Permission.findAll({
+        where: { active: true },
         attributes: ['id', 'name', 'description'],
         order: [['id', 'ASC']]
     });

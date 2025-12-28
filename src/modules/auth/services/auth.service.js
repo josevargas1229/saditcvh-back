@@ -4,9 +4,7 @@ const bcrypt = require("bcryptjs");
 const jwtConfig = require("../../../config/jwt");
 const { unauthorized } = require("../../../utils/errorResponse");
 const Role = require("../../roles/models/roles.model");
-// const { getRolesByUserId } = require("../../roles/services/role.service"); // Esta línea no se necesita si ya incluyes los roles directamente
 
-// Tiempos de expiración en segundos (mantener)
 const ACCESS_TOKEN_EXPIRATION = process.env.ACCESS_TOKEN_EXPIRATION || "15m"; // 15 minutos
 const REFRESH_TOKEN_EXPIRATION = process.env.REFRESH_TOKEN_EXPIRATION || "7d";  // 7 días
 
@@ -20,22 +18,29 @@ const REFRESH_TOKEN_EXPIRATION = process.env.REFRESH_TOKEN_EXPIRATION || "7d";  
 // src/modules/auth/services/auth.service.js
 exports.authenticate = async (username, password) => {
     const user = await User.findOne({
-        where: { username },
-        include: [{ model: Role, as: 'roles' }],
+        where: { 
+            username,
+            active: true // Impedir login si el usuario está desactivado por negocio
+        },
+        include: [{ 
+            model: Role, 
+            as: 'roles',
+            where: { active: true }, // Solo roles vigentes
+            required: false 
+        }],
     });
 
-    if (!user || user.active === false) {
-        throw unauthorized("Credenciales inválidas.");
+    // Si el usuario no existe o está borrado lógicamente, user será null
+    if (!user) {
+        throw unauthorized("Credenciales inválidas o cuenta desactivada.");
     }
 
-    // bcrypt.compare ya es timing-safe
     const isValid = await bcrypt.compare(password, user.password);
-
     if (!isValid) {
         throw unauthorized("Credenciales inválidas.");
     }
 
-    const roles = user.roles.map(role => role.name);
+    const roles = user.roles ? user.roles.map(role => role.name) : [];
 
     const payload = {
         id: user.id,
@@ -43,17 +48,16 @@ exports.authenticate = async (username, password) => {
         roles,
     };
 
-    const accessToken = jwtConfig.sign(payload, ACCESS_TOKEN_EXPIRATION);
-    const refreshToken = jwtConfig.sign(payload, REFRESH_TOKEN_EXPIRATION);
-
-    const userData = {
-        id: user.id,
-        username: user.username,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        roles,
+    return {
+        user: {
+            id: user.id,
+            username: user.username,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            email: user.email,
+            roles,
+        },
+        accessToken: jwtConfig.sign(payload, ACCESS_TOKEN_EXPIRATION),
+        refreshToken: jwtConfig.sign(payload, REFRESH_TOKEN_EXPIRATION)
     };
-
-    return { user: userData, accessToken, refreshToken };
 };

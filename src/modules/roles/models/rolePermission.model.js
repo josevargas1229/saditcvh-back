@@ -19,9 +19,9 @@ const RolePermission = sequelize.define("RolePermission", {
     }
 }, {
     tableName: "role_permissions",
-    schema: "public",
-    timestamps: false,
-    underscored: true,
+    timestamps: true,
+    paranoid: true,
+    underscored: true
 });
 
 module.exports = RolePermission;
