@@ -71,13 +71,14 @@ exports.getRoleCounts = async () => {
  * @param {Object} data - Definición del rol y array de permission_ids.
  * @returns {Promise<Object>} Instancia del rol creado bajo transacción.
  */
-exports.createRole = async (data) => {
+exports.createRole = async (data, req) => {
     const transaction = await sequelize.transaction();
     try {
         const existingRole = await Role.findOne({ where: { name: data.name } });
         if (existingRole) throw new Error("Conflicto: El identificador de rol ya existe.");
 
-        const role = await Role.create({ name: data.name }, { transaction });
+        // Pasamos req y transaction
+        const role = await Role.create({ name: data.name }, { transaction, req });
 
         if (data.permissions && data.permissions.length > 0) {
             const rolePerms = data.permissions.map(pId => ({
@@ -98,20 +99,17 @@ exports.createRole = async (data) => {
 /**
  * Actualiza la denominación del rol y sincroniza su matriz de permisos.
  */
-exports.updateRole = async (id, data) => {
+exports.updateRole = async (id, data, req) => {
     const transaction = await sequelize.transaction();
     try {
         const role = await Role.findByPk(id);
         if (!role) throw new Error("Registro no localizado.");
 
-        await role.update({ name: data.name }, { transaction });
+        // Pasamos req para que el Hook detecte si el nombre cambió
+        await role.update({ name: data.name }, { transaction, req });
 
         if (data.permissions) {
-            await RolePermission.destroy({ 
-                where: { role_id: id }, 
-                transaction 
-            });
-            
+            await RolePermission.destroy({ where: { role_id: id }, transaction });
             if (data.permissions.length > 0) {
                 const rolePerms = data.permissions.map(pId => ({
                     role_id: id,
@@ -132,9 +130,9 @@ exports.updateRole = async (id, data) => {
 /**
  * Elimina un rol del catálogo.
  */
-exports.deleteRole = async (id) => {
+exports.deleteRole = async (id, req) => {
     const role = await Role.findByPk(id);
     if (!role) throw new Error("Registro no localizado.");
-    await role.update({ active: false }); 
-    return await role.destroy(); 
+    await role.update({ active: false }, { req }); 
+    return await role.destroy({ req }); 
 };

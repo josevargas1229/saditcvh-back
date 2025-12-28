@@ -4,6 +4,7 @@
  */
 const sequelize = require("../../../config/db");
 const { User, Role, Cargo, Permission, Municipio, UserMunicipalityPermission, UserRole} = require("../../../database/associations");
+const auditService = require("../../audit/services/audit.service");
 const bcrypt = require("bcryptjs");
 const { Op, fn, col, where } = require("sequelize");
 
@@ -152,12 +153,10 @@ exports.getUserById = async (id) => {
 /**
  * Proceso transaccional de alta de usuario con propagación de matriz de acceso.
  */
-exports.createUser = async (data, adminId) => {
+exports.createUser = async (data, adminId, req) => {
     const transaction = await sequelize.transaction();
     try {
-        if (!data.municipios || data.municipios.length === 0) {
-            throw new Error("Asignación territorial obligatoria (mínimo 1 municipio).");
-        }
+        if (!data.municipios || data.municipios.length === 0) throw new Error("Asignación territorial obligatoria.");
 
         if (data.password) data.password = await bcrypt.hash(data.password, 12);
 
@@ -166,11 +165,10 @@ exports.createUser = async (data, adminId) => {
             created_by: adminId,
             updated_by: adminId,
             active: true
-        }, { transaction });
+        }, { transaction, req }); // <--- req activa el Hook automático
 
         if (data.roles && data.roles.length > 0) {
-            // setRoles manejará la inserción en user_roles
-            await newUser.setRoles(data.roles, { transaction });
+            await newUser.setRoles(data.roles, { transaction, req });
 
             const rolesWithPermissions = await Role.findAll({
                 where: { id: data.roles, active: true },
@@ -178,9 +176,7 @@ exports.createUser = async (data, adminId) => {
             });
 
             const permissionIds = new Set();
-            rolesWithPermissions.forEach(role => {
-                role.base_permissions.forEach(p => permissionIds.add(p.id));
-            });
+            rolesWithPermissions.forEach(role => role.base_permissions.forEach(p => permissionIds.add(p.id)));
 
             const bulkPermissions = [];
             data.municipios.forEach(muniId => {
@@ -209,64 +205,46 @@ exports.createUser = async (data, adminId) => {
 /**
  * Actualiza la información del usuario y resincroniza la matriz mediante eliminación lógica.
  */
-exports.updateUser = async (id, data, adminId) => {
+exports.updateUser = async (id, data, adminId, req) => {
     const transaction = await sequelize.transaction();
     try {
         const user = await User.findByPk(id, { transaction });
-        if (!user) throw new Error("Entidad de usuario no localizada.");
+        if (!user) throw new Error("Usuario no localizado.");
 
         if (data.password) data.password = await bcrypt.hash(data.password, 12);
-        await user.update({ ...data, updated_by: adminId }, { transaction });
+        
+        // El update automático generará el log de campos cambiados
+        await user.update({ ...data, updated_by: adminId }, { transaction, req });
 
-        const hayCambioMunicipios = data.municipios !== undefined;
-        const hayCambioRoles = data.roles !== undefined;
-
-        if (hayCambioRoles || hayCambioMunicipios) {
-            if (hayCambioRoles) {
-                // Al ser UserRole ahora PARANOID, Sequelize marcará deleted_at 
-                // en los roles que se quiten en lugar de borrarlos físicamente.
-                await user.setRoles(data.roles, { transaction });
-            }
+        if (data.roles !== undefined || data.municipios !== undefined) {
+            if (data.roles !== undefined) await user.setRoles(data.roles, { transaction, req });
 
             let targetMunicipios = [];
-            if (hayCambioMunicipios) {
+            if (data.municipios !== undefined) {
                 targetMunicipios = data.municipios;
             } else {
-                const currentAccess = await UserMunicipalityPermission.findAll({
+                const current = await UserMunicipalityPermission.findAll({
                     where: { user_id: id, active: true },
                     attributes: ['municipio_id'],
                     group: ['municipio_id'],
                     transaction
                 });
-                targetMunicipios = currentAccess.map(a => a.municipio_id);
+                targetMunicipios = current.map(a => a.municipio_id);
             }
 
-            await UserMunicipalityPermission.destroy({ 
-                where: { user_id: id, is_exception: false }, 
-                transaction 
-            });
+            await UserMunicipalityPermission.destroy({ where: { user_id: id, is_exception: false }, transaction });
 
             if (targetMunicipios.length > 0) {
-                const verPermission = await Permission.findOne({ 
-                    where: { name: 'ver', active: true }, 
-                    transaction 
-                });
-                const basePermissionId = verPermission ? verPermission.id : 1;
-
-                const bulkPermissions = targetMunicipios.map(muniId => ({
-                    user_id: id,
-                    municipio_id: muniId,
-                    permission_id: basePermissionId,
-                    is_exception: false,
-                    active: true
+                const verPerm = await Permission.findOne({ where: { name: 'ver', active: true }, transaction });
+                const basePermId = verPerm ? verPerm.id : 1;
+                const bulk = targetMunicipios.map(muniId => ({
+                    user_id: id, municipio_id: muniId, permission_id: basePermId, is_exception: false, active: true
                 }));
-
-                await UserMunicipalityPermission.bulkCreate(bulkPermissions, { transaction });
+                await UserMunicipalityPermission.bulkCreate(bulk, { transaction });
             }
         }
-
         await transaction.commit();
-        return { id, message: "Sincronización procesada correctamente." };
+        return await this.getUserById(id);
     } catch (error) {
         await transaction.rollback();
         throw error;
@@ -276,14 +254,18 @@ exports.updateUser = async (id, data, adminId) => {
 /**
  * Gestión manual de excepciones. Usa destroy() para borrado lógico si value es false.
  */
-exports.updateSinglePermission = async (userId, municipioId, permissionId, value) => {
+exports.updateSinglePermission = async (userId, municipioId, permissionId, value, req) => {
+    // AUDITORÍA MANUAL: Al ser una tabla intermedia, registramos el evento directamente
+    await auditService.createLog(req, {
+        action: 'UPDATE_PERMS',
+        module: 'USERS',
+        entityId: userId,
+        details: { municipioId, permissionId, newValue: value, type: 'SINGLE_EXCEPTION' }
+    });
+
     if (value === true) {
         return await UserMunicipalityPermission.upsert({
-            user_id: userId,
-            municipio_id: municipioId,
-            permission_id: permissionId,
-            is_exception: true,
-            active: true
+            user_id: userId, municipio_id: municipioId, permission_id: permissionId, is_exception: true, active: true
         });
     } else {
         return await UserMunicipalityPermission.destroy({
@@ -295,9 +277,17 @@ exports.updateSinglePermission = async (userId, municipioId, permissionId, value
 /**
  * Actualización masiva de permisos (Batch Update) con eliminación lógica.
  */
-exports.updatePermissionsBatch = async (userId, changes) => {
+exports.updatePermissionsBatch = async (userId, changes, req) => {
     const transaction = await sequelize.transaction();
     try {
+        // AUDITORÍA MANUAL: Registramos que hubo un cambio masivo
+        await auditService.createLog(req, {
+            action: 'UPDATE_PERMS',
+            module: 'USERS',
+            entityId: userId,
+            details: { total_changes: changes.length, type: 'BATCH_UPDATE' }
+        });
+
         const toCreate = [];
         const toDeleteIds = [];
 
@@ -306,41 +296,13 @@ exports.updatePermissionsBatch = async (userId, changes) => {
             const { municipioId, permissionId, value } = change;
             
             if (value === true) {
-                // Preparamos para Bulk Create
-                toCreate.push({
-                    user_id: userId,
-                    municipio_id: municipioId,
-                    permission_id: permissionId,
-                    is_exception: true,
-                    created_at: new Date(),
-                    updated_at: new Date(),
-                    active: true
-                });
+                toCreate.push({ user_id: userId, municipio_id: municipioId, permission_id: permissionId, is_exception: true, active: true });
             } else {
-                // Preparamos criterio para borrar
-                toDeleteIds.push({ 
-                    user_id: userId, 
-                    municipio_id: municipioId, 
-                    permission_id: permissionId 
-                });
+                toDeleteIds.push({ user_id: userId, municipio_id: municipioId, permission_id: permissionId });
             }
         }
-
-        // 2. Ejecutar Eliminaciones Masivas (1 sola consulta)
-        if (toDeleteIds.length > 0) {
-            await UserMunicipalityPermission.destroy({
-                where: { [Op.or]: toDeleteIds },
-                transaction
-            });
-        }
-
-        if (toCreate.length > 0) {
-            await UserMunicipalityPermission.bulkCreate(toCreate, {
-                updateOnDuplicate: ['is_exception', 'active', 'updated_at'], 
-                transaction
-            });
-        }
-
+        if (toDeleteIds.length > 0) await UserMunicipalityPermission.destroy({ where: { [Op.or]: toDeleteIds }, transaction });
+        if (toCreate.length > 0) await UserMunicipalityPermission.bulkCreate(toCreate, { updateOnDuplicate: ['is_exception', 'active'], transaction });
         await transaction.commit();
         return { success: true };
     } catch (error) {
@@ -353,35 +315,25 @@ exports.updatePermissionsBatch = async (userId, changes) => {
  * Borrado lógico integral (Cascading Soft-Delete).
  * Desactiva al usuario y revoca lógicamente roles y permisos municipales.
  */
-exports.deleteUser = async (id) => {
+exports.deleteUser = async (id, req) => {
     const transaction = await sequelize.transaction();
     try {
         const user = await User.findByPk(id);
         if (!user) throw new Error("Registro no localizado.");
         
         // 1. Desactivación y borrado lógico del usuario
-        await user.update({ active: false }, { transaction });
-        await user.destroy({ transaction });
+        await user.update({ active: false }, { transaction, req });
+        await user.destroy({ transaction, req }); // <--- Hook de DELETE
 
         // 2. Revocación lógica de Roles (Si UserRole es paranoid)
         // Nota: Si UserRole no tiene campo 'active', solo hacemos el destroy.
         // Si lo tiene, hacemos el update primero.
-        await UserRole.destroy({
-            where: { user_id: id },
-            transaction
-        });
+        await UserRole.destroy({ where: { user_id: id }, transaction, req });
 
         // 3. Revocación lógica de Matriz de Permisos (paranoid + active)
-        // Aquí aplicamos tu observación: marcamos active: false antes del destroy
-        await UserMunicipalityPermission.update(
-            { active: false }, 
-            { where: { user_id: id }, transaction }
-        );
-        
-        await UserMunicipalityPermission.destroy({
-            where: { user_id: id },
-            transaction
-        });
+        // Aquí marcamos active: false antes del destroy
+        await UserMunicipalityPermission.update({ active: false }, { where: { user_id: id }, transaction });
+        await UserMunicipalityPermission.destroy({ where: { user_id: id }, transaction });
 
         await transaction.commit();
         return { success: true };

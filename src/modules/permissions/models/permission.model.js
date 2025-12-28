@@ -5,6 +5,7 @@
  */
 const { DataTypes } = require("sequelize");
 const sequelize = require("../../../config/db");
+const { handleModelAudit } = require("../../audit/utils/auditHelper");
 
 const Permission = sequelize.define("Permission", {
     id: { 
@@ -31,6 +32,11 @@ const Permission = sequelize.define("Permission", {
     timestamps: true,
     paranoid: true,
     underscored: true,
+    hooks: {
+        afterCreate: (instance, options) => handleModelAudit(instance, options, 'CREATE'),
+        afterUpdate: (instance, options) => handleModelAudit(instance, options, 'UPDATE'),
+        afterDestroy: (instance, options) => handleModelAudit(instance, options, 'DELETE')
+    }
 });
 
 module.exports = Permission;

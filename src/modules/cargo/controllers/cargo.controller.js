@@ -13,7 +13,7 @@ exports.getCargos = async (req, res, next) => {
 
 exports.createCargo = async (req, res, next) => {
     try {
-        const cargo = await cargoService.createCargo(req.body);
+        const cargo = await cargoService.createCargo(req.body, req);
         res.status(201).json({ 
             success: true, 
             message: "Cargo creado exitosamente", 
@@ -24,7 +24,7 @@ exports.createCargo = async (req, res, next) => {
 
 exports.updateCargo = async (req, res, next) => {
     try {
-        const cargo = await cargoService.updateCargo(req.params.id, req.body);
+        const cargo = await cargoService.updateCargo(req.params.id, req.body, req);
         res.status(200).json({ 
             success: true, 
             message: "Cargo actualizado exitosamente", 
@@ -35,7 +35,7 @@ exports.updateCargo = async (req, res, next) => {
 
 exports.deleteCargo = async (req, res, next) => {
     try {
-        await cargoService.deleteCargo(req.params.id);
+        await cargoService.deleteCargo(req.params.id, req);
         res.status(200).json({ 
             success: true, 
             message: "Cargo eliminado correctamente",

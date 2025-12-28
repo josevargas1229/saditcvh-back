@@ -6,6 +6,7 @@ const Permission = require("../modules/permissions/models/permission.model");
 const RolePermission = require("../modules/roles/models/rolePermission.model");
 const Municipio = require("../modules/municipios/models/municipio.model");
 const UserMunicipalityPermission = require("../modules/users/models/userMunicipalityPermission.model");
+const AuditLog = require("../modules/audit/models/auditLog.model");
 
 User.belongsToMany(Role, { through: UserRole, foreignKey: 'user_id', otherKey: 'role_id', as: 'roles' });
 Role.belongsToMany(User, { through: UserRole, foreignKey: 'role_id', otherKey: 'user_id', as: 'users' });
@@ -19,6 +20,9 @@ User.belongsTo(User, { as: 'editor', foreignKey: 'updated_by' });
 User.hasMany(User, { as: 'createdUsers', foreignKey: 'created_by' });
 User.hasMany(User, { as: 'updatedUsers', foreignKey: 'updated_by' });
 
+// Un usuario puede tener muchos logs
+User.hasMany(AuditLog, { foreignKey: 'user_id', as: 'audit_logs' });
+AuditLog.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // Roles y sus Permisos Base (La "plantilla" por defecto)
 Role.belongsToMany(Permission, { 
@@ -54,5 +58,6 @@ module.exports = {
     Permission,
     RolePermission,
     Municipio,
-    UserMunicipalityPermission
+    UserMunicipalityPermission,
+    AuditLog,
 };

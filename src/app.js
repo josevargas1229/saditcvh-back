@@ -10,6 +10,7 @@ const roleRoutes = require("./modules/roles/routes/roles.routes");
 const cargoRoutes = require("./modules/cargo/routes/cargo.routes");
 const municipioRoutes = require("./modules/municipios/routes/municipio.routes");
 const permissionRoutes = require("./modules/permissions/routes/permission.routes");
+const auditRoutes = require("./modules/audit/routes/audit.routes");
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use("/api/roles", roleRoutes);
 app.use("/api/cargos", cargoRoutes);
 app.use("/api/municipios", municipioRoutes);
 app.use("/api/permissions", permissionRoutes);
+app.use("/api/audit", auditRoutes);
 
 // 404
 app.use(notFoundHandler);

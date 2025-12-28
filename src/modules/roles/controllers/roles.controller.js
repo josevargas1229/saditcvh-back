@@ -37,7 +37,7 @@ exports.getRoleCounts = async (req, res, next) => {
  */
 exports.createRole = async (req, res, next) => {
     try {
-        const role = await roleService.createRole(req.body);
+        const role = await roleService.createRole(req.body, req);
         return res.status(201).json({ 
             success: true, 
             message: "Entidad de rol y matriz de privilegios creada.", 
@@ -51,7 +51,7 @@ exports.createRole = async (req, res, next) => {
  */
 exports.updateRole = async (req, res, next) => {
     try {
-        const role = await roleService.updateRole(req.params.id, req.body);
+        const role = await roleService.updateRole(req.params.id, req.body, req);
         return res.status(200).json({ 
             success: true, 
             message: "Actualización de rol y privilegios procesada exitosamente.", 
@@ -65,7 +65,7 @@ exports.updateRole = async (req, res, next) => {
  */
 exports.deleteRole = async (req, res, next) => {
     try {
-        await roleService.deleteRole(req.params.id);
+        await roleService.deleteRole(req.params.id, req);
         return res.status(200).json({ 
             success: true, 
             message: "Registro de rol eliminado del sistema.",
