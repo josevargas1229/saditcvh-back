@@ -9,4 +9,10 @@ const { protect, restrictTo } = require("../../auth/middlewares/auth.middleware"
  */
 router.get("/", protect, auditController.getLogs);
 
+/**
+ * Ruta para obtener detalles de una acción específica.
+ * Solo accesible para administradores autenticados.
+ */
+router.get("/:id", protect, auditController.getLogById);
+
 module.exports = router;

@@ -255,12 +255,27 @@ exports.updateUser = async (id, data, adminId, req) => {
  * Gestión manual de excepciones. Usa destroy() para borrado lógico si value es false.
  */
 exports.updateSinglePermission = async (userId, municipioId, permissionId, value, req) => {
-    // AUDITORÍA MANUAL: Al ser una tabla intermedia, registramos el evento directamente
+    // Buscamos la data descriptiva en paralelo para no perder performance
+    const [targetUser, municipio, permission] = await Promise.all([
+        User.findByPk(userId, { attributes: ['first_name', 'last_name', 'username'] }),
+        Municipio.findByPk(municipioId, { attributes: ['nombre'] }),
+        Permission.findByPk(permissionId, { attributes: ['name'] })
+    ]);
+
+    // AUDITORÍA ENRIQUECIDA
     await auditService.createLog(req, {
         action: 'UPDATE_PERMS',
-        module: 'USERS',
+        module: 'USER',
         entityId: userId,
-        details: { municipioId, permissionId, newValue: value, type: 'SINGLE_EXCEPTION' }
+        details: { 
+            target_user: `${targetUser?.first_name} ${targetUser?.last_name}`.trim() || targetUser?.username,
+            municipality: municipio?.nombre || 'Desconocido',
+            type: 'SINGLE_EXCEPTION',
+            changes: {
+                added: value === true ? [permission?.name] : [],
+                removed: value === false ? [permission?.name] : []
+            }
+        }
     });
 
     if (value === true) {
@@ -279,30 +294,56 @@ exports.updateSinglePermission = async (userId, municipioId, permissionId, value
  */
 exports.updatePermissionsBatch = async (userId, changes, req) => {
     const transaction = await sequelize.transaction();
+    
     try {
-        // AUDITORÍA MANUAL: Registramos que hubo un cambio masivo
-        await auditService.createLog(req, {
-            action: 'UPDATE_PERMS',
-            module: 'USERS',
-            entityId: userId,
-            details: { total_changes: changes.length, type: 'BATCH_UPDATE' }
-        });
+        // 1. Obtener nombres de referencia
+        const targetUser = await User.findByPk(userId, { attributes: ['first_name', 'last_name', 'username'] });
+        const allPermissions = await Permission.findAll({ attributes: ['id', 'name'] });
+        const allMunicipios = await Municipio.findAll({ attributes: ['id', 'nombre'] });
+
+        // Mapeos para búsqueda rápida
+        const permsMap = Object.fromEntries(allPermissions.map(p => [p.id, p.name]));
+        const munisMap = Object.fromEntries(allMunicipios.map(m => [m.id, m.nombre]));
 
         const toCreate = [];
         const toDeleteIds = [];
+        
+        // Estructura para el Log
+        const added = [];
+        const removed = [];
+        const affectedMunis = new Set();
 
-        // 1. Clasificar cambios en memoria (Rapidísimo)
         for (const change of changes) {
             const { municipioId, permissionId, value } = change;
-            
+            const desc = `${permsMap[permissionId]} (${munisMap[municipioId]})`;
+            affectedMunis.add(munisMap[municipioId]);
+
             if (value === true) {
                 toCreate.push({ user_id: userId, municipio_id: municipioId, permission_id: permissionId, is_exception: true, active: true });
+                added.push(desc);
             } else {
                 toDeleteIds.push({ user_id: userId, municipio_id: municipioId, permission_id: permissionId });
+                removed.push(desc);
             }
         }
+
+        // AUDITORÍA MASIVA ENRIQUECIDA
+        await auditService.createLog(req, {
+            action: 'UPDATE_PERMS',
+            module: 'USER',
+            entityId: userId,
+            details: { 
+                target_user: `${targetUser?.first_name} ${targetUser?.last_name}`.trim() || targetUser?.username,
+                municipality: Array.from(affectedMunis).join(', '),
+                type: 'BATCH_UPDATE',
+                total_changes: changes.length,
+                changes: { added, removed }
+            }
+        });
+
         if (toDeleteIds.length > 0) await UserMunicipalityPermission.destroy({ where: { [Op.or]: toDeleteIds }, transaction });
-        if (toCreate.length > 0) await UserMunicipalityPermission.bulkCreate(toCreate, { updateOnDuplicate: ['is_exception', 'active'], transaction });
+        if (toCreate.length > 0) await UserMunicipalityPermission.bulkCreate(toCreate, { updateOnDuplicate: ['active'], transaction });
+        
         await transaction.commit();
         return { success: true };
     } catch (error) {
@@ -332,7 +373,8 @@ exports.deleteUser = async (id, req) => {
         if (!user) throw new Error("Registro no localizado.");
         
         // 1. Desactivación y borrado lógico del usuario
-        await user.update({ active: false }, { transaction, req });
+        user.active = false;
+        await user.save({ transaction });
         await user.destroy({ transaction, req }); // <--- Hook de DELETE
 
         // 2. Revocación lógica de Roles (Si UserRole es paranoid)

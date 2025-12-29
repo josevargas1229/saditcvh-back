@@ -1,31 +1,18 @@
-/**
- * SERVICIO: AuditService
- * DESCRIPCIÓN: Motor centralizado para el registro de bitácora de acciones.
- */
-const AuditLog = require("../models/auditLog.model"); 
+// src/modules/audit/services/audit.service.js
 const { parseUserAgent } = require("../../../utils/userAgentParser");
+const { Op } = require("sequelize");
 
-/**
- * Registra de forma asíncrona una acción en la bitácora de auditoría.
- * Extrae contexto de red y usuario del objeto 'req'.
- * * @param {Object} req - Objeto de petición Express.
- * @param {Object} params - Configuración del log.
- * @param {string} params.action - Verbo de la acción (p.ej. 'DOWNLOAD').
- * @param {string} params.module - Área del sistema (p.ej. 'DOCUMENTS').
- * @param {string|number} [params.entityId] - ID del objeto afectado.
- * @param {Object} [params.details] - Datos adicionales para humanizar el registro.
- */
+// NO importamos modelos aquí arriba para evitar el ciclo
+
 exports.createLog = async (req, { action, module, entityId = null, details = {} }) => {
+    // Importación dinámica local
+    const { AuditLog } = require("../../../database/associations");
     try {
-        // 1. Identificación del actor (Sesión)
         const userId = req.user ? req.user.id : null;
-
-        // 2. Contexto técnico (Red y Dispositivo)
         const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
         const userAgentRaw = req.headers['user-agent'];
         const device = parseUserAgent(userAgentRaw);
 
-        // 3. Preparación del registro inmutable
         const logData = {
             user_id: userId,
             action: action.toUpperCase(),
@@ -33,30 +20,93 @@ exports.createLog = async (req, { action, module, entityId = null, details = {} 
             entity_id: entityId ? String(entityId) : null,
             ip_address: ipAddress,
             user_agent: userAgentRaw,
-            details: {
-                ...details,
-                device_detected: device
-            }
+            details: { ...details, device_detected: device }
         };
 
-        /**
-         * Ejecución asíncrona: No usamos 'await' para la creación del registro
-         * para no penalizar el tiempo de respuesta del usuario final.
-         */
-        AuditLog.create(logData).catch(err => {
-            console.error("ERROR CRÍTICO (Bitácora): No se pudo persistir el log.", err);
-        });
-
+        AuditLog.create(logData).catch(err => console.error("ERROR CRÍTICO (Bitácora):", err));
     } catch (error) {
-        // Fallo silencioso: La bitácora no debe interrumpir el flujo del sistema
         console.error("Error en motor de auditoría:", error);
     }
 };
 
-/**
- * Recupera logs de auditoría con soporte para filtros y paginación.
- * (Útil para la Fase 4)
- */
-exports.getAuditLogs = async (query) => {
-    // Aquí irá la lógica para el Centro de Auditoría (Frontend)
+exports.getAuditLogs = async (filters) => {
+    const { AuditLog, User, Role } = require("../../../database/associations");
+    
+    const { 
+        page = 1, limit = 20, module, action, search, 
+        startDate, endDate, roleId, sort = 'DESC' 
+    } = filters;
+    
+    const offset = (page - 1) * limit;
+    const where = {};
+
+    // Filtros directos (Muy rápidos por tus índices)
+    if (module && module !== 'ALL') where.module = module;
+    if (action) where.action = action;
+    if (startDate || endDate) {
+        where.created_at = {};
+        if (startDate) {
+            // Desde el primer segundo del día: 00:00:00
+            const start = new Date(startDate);
+            start.setUTCHours(0, 0, 0, 0);
+            where.created_at[Op.gte] = start;
+        }
+        if (endDate) {
+            // Hasta el último milisegundo del día: 23:59:59.999
+            const end = new Date(endDate);
+            end.setUTCHours(23, 59, 59, 999);
+            where.created_at[Op.lte] = end;
+        }
+    }
+
+    // Construcción de la búsqueda
+    const searchWhere = [];
+    if (search) {
+        searchWhere.push({ action: { [Op.iLike]: `%${search}%` } });
+        searchWhere.push({ entity_id: { [Op.iLike]: `%${search}%` } });
+        // Solo buscamos en username si el search no es vacío
+        searchWhere.push({ '$user.username$': { [Op.iLike]: `%${search}%` } });
+        where[Op.or] = searchWhere;
+    }
+
+    return await AuditLog.findAndCountAll({
+        where,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        order: [['created_at', sort.toUpperCase() === 'ASC' ? 'ASC' : 'DESC']],
+        attributes: ['id', 'user_id', 'action', 'module', 'entity_id', 'ip_address', 'created_at'],
+        // Optimizamos el subQuery para que no se alente con el count
+        subQuery: false, 
+        include: [{
+            model: User,
+            as: 'user',
+            attributes: ['username','first_name', 'last_name'],
+            // Si hay RoleId, forzamos INNER JOIN para filtrar
+            required: (roleId && roleId !== 'ALL') || (search ? true : false), 
+            include: (roleId && roleId !== 'ALL') ? [{
+                model: Role,
+                as: 'roles',
+                where: { id: roleId },
+                attributes: [], // No necesitamos los nombres de los roles en la lista
+                through: { attributes: [] }
+            }] : []
+        }]
+    });
+};
+
+exports.getAuditLogById = async (id) => {
+    const { AuditLog, User, Role } = require("../../../database/associations");
+    return await AuditLog.findByPk(id, {
+        include: [{ 
+            model: User, 
+            as: 'user',
+            attributes: ['id', 'username', 'first_name', 'last_name', 'email'],
+            include: [{
+                model: Role,
+                as: 'roles',
+                attributes: ['name'],
+                through: { attributes: [] }
+            }]
+        }]
+    });
 };

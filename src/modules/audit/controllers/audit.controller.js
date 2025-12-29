@@ -1,65 +1,31 @@
-/**
- * CONTROLADOR: AuditController
- * DESCRIPCIÓN: Punto de entrada para la consulta de trazabilidad y logs.
- */
-const { AuditLog, User } = require("../../../database/associations");
-const { Op } = require("sequelize");
+const auditService = require("../services/audit.service");
 
 exports.getLogs = async (req, res, next) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const offset = (page - 1) * limit;
-
-        const { module, action, search, startDate, endDate } = req.query;
-
-        // 1. Construcción dinámica de filtros
-        const where = {};
+        const result = await auditService.getAuditLogs(req.query);
         
-        if (module && module !== 'ALL') where.module = module;
-        if (action) where.action = action;
-        
-        // Filtro por rango de fechas (útil para reportes)
-        if (startDate && endDate) {
-            where.created_at = {
-                [Op.between]: [new Date(startDate), new Date(endDate)]
-            };
-        }
-
-        // Búsqueda global (en acción, ID de entidad o username del usuario relacionado)
-        const whereUser = {};
-        if (search) {
-            where[Op.or] = [
-                { action: { [Op.iLike]: `%${search}%` } },
-                { entity_id: { [Op.iLike]: `%${search}%` } },
-                { '$user.username$': { [Op.iLike]: `%${search}%` } } // Búsqueda por el JOIN
-            ];
-        }
-
-        // 2. Consulta con Eager Loading (JOIN)
-        const { count, rows } = await AuditLog.findAndCountAll({
-            where,
-            limit,
-            offset,
-            order: [['created_at', 'DESC']],
-            include: [{ 
-                model: User, 
-                as: 'user', 
-                attributes: ['id', 'username', 'first_name', 'last_name', 'email'],
-                required: false // Permitir ver logs de usuarios ya eliminados (NULL)
-            }]
-        });
-
         return res.status(200).json({
             success: true,
-            data: rows,
+            data: result.rows,
             pagination: {
-                total: count,
-                page,
-                limit,
-                totalPages: Math.ceil(count / limit)
+                total: result.count,
+                page: parseInt(req.query.page) || 1,
+                limit: parseInt(req.query.limit) || 20,
+                totalPages: Math.ceil(result.count / (parseInt(req.query.limit) || 20))
             }
         });
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.getLogById = async (req, res, next) => {
+    try {
+        const log = await auditService.getAuditLogById(req.params.id);
+        if (!log) {
+            return res.status(404).json({ success: false, message: "Registro no encontrado" });
+        }
+        return res.status(200).json({ success: true, data: log });
     } catch (err) {
         next(err);
     }
