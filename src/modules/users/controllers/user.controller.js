@@ -123,6 +123,15 @@ exports.updatePermissionsBatch = async (req, res, next) => {
     } catch (err) { return next(err); }
 };
 
+
+exports.getUserPermissionsRaw = async (req, res, next) => {
+    try {
+        const data = await userService.getUserPermissionsRaw(req.params.id);
+        return res.status(200).json({ success: true, data });
+    } catch (err) { return next(err); }
+};
+
+
 exports.deleteUser = async (req, res, next) => {
     try {
         await userService.deleteUser(req.params.id, req);

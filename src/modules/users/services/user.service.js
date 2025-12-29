@@ -311,6 +311,16 @@ exports.updatePermissionsBatch = async (userId, changes, req) => {
     }
 };
 
+
+exports.getUserPermissionsRaw = async (userId) => {
+    // Consulta directa y ligera: Solo trae IDs
+    return await UserMunicipalityPermission.findAll({
+        where: { user_id: userId, active: true },
+        attributes: ['municipio_id', 'permission_id'],
+        raw: true
+    });
+};
+
 /**
  * Borrado lógico integral (Cascading Soft-Delete).
  * Desactiva al usuario y revoca lógicamente roles y permisos municipales.
