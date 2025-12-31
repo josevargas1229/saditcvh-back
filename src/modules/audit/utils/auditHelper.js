@@ -1,54 +1,75 @@
 const auditService = require("../services/audit.service");
 
-/**
- * Helper para registrar cambios en modelos de forma estandarizada.
- * Detecta qué campos cambiaron y genera el log ofuscando datos sensibles.
- */
 exports.handleModelAudit = async (instance, options, action) => {
-    // Si no hay objeto 'req' en las opciones, no podemos auditar (falta contexto)
     if (!options.req) return;
 
-    const changes = {};
-    const module = instance.constructor.name.toUpperCase();
-    
-    // Lista de campos que queremos ocultar pero registrar que cambiaron
+    // DETECTAR ELIMINACIÓN LÓGICA: 
+    // Si Sequelize está disparando un UPDATE pero el campo de borrado cambió, 
+    // abortamos esta ejecución para que solo se procese como DELETE.
+    if (action === 'UPDATE' && instance.changed && (instance.changed('active') || instance.changed('deleted_at'))) {
+        return; 
+    }
+
+    const moduleName = instance.constructor.name.toUpperCase();
     const sensitiveFields = ['password', 'token', 'secret'];
+    const systemFields = ['createdAt', 'updatedAt', 'deletedAt', 'created_at', 'updated_at', 'deleted_at', 'created_by', 'updated_by'];
+    
+    const changes = {};
 
     if (action === 'UPDATE') {
         const changedFields = instance.changed();
-        
         if (changedFields) {
-            changedFields.forEach(field => {
-                // Ignoramos campos de sistema internos
-                if (['updated_at', 'updated_by', 'created_at'].includes(field)) return;
+            const { Cargo } = require("../../../database/associations");
+
+            for (const field of changedFields) {
+                if (systemFields.includes(field)) continue;
                 
                 if (sensitiveFields.includes(field)) {
-                    // Si es sensible, registramos que cambió pero ocultamos el valor
-                    changes[field] = {
-                        old: "[PROTEGIDO]",
-                        new: "[DATO_MODIFICADO]"
+                    changes[field] = { old: "[PROTEGIDO]", new: "[DATO_MODIFICADO]" };
+                } 
+                else if (field === 'cargo_id') {
+                    const oldCargo = await Cargo.findByPk(instance.previous('cargo_id'), { attributes: ['nombre'] });
+                    const newCargo = await Cargo.findByPk(instance.getDataValue('cargo_id'), { attributes: ['nombre'] });
+                    changes['cargo'] = { 
+                        old: oldCargo ? oldCargo.nombre : 'Sin cargo', 
+                        new: newCargo ? newCargo.nombre : 'Sin cargo' 
                     };
-                } else {
-                    // Si es normal, registramos valor anterior y nuevo
+                }
+                else {
                     changes[field] = {
                         old: instance.previous(field),
                         new: instance.getDataValue(field)
                     };
                 }
-            });
+            }
         }
         
-        // Si no hubo cambios reales, no guardamos log
-        if (Object.keys(changes).length === 0) return;
+        if (options.manualChanges) {
+            Object.assign(changes, options.manualChanges);
+        }
+
+        if (Object.keys(changes).length === 0 && !options.forceAudit) return;
     }
 
-    // Para el caso de CREATE, también limpiamos la instancia que va a details
     let detailsData = {};
     if (action === 'CREATE') {
         const rawData = instance.toJSON();
-        sensitiveFields.forEach(f => {
-            if (rawData[f]) rawData[f] = "[PROTEGIDO]";
+        Object.keys(rawData).forEach(key => {
+            if (systemFields.includes(key)) delete rawData[key];
+            if (sensitiveFields.includes(key)) rawData[key] = "[PROTEGIDO]";
         });
+
+        if (rawData.cargo_id) {
+            const { Cargo } = require("../../../database/associations");
+            const cargo = await Cargo.findByPk(rawData.cargo_id, { attributes: ['nombre'] });
+            rawData.cargo = cargo ? cargo.nombre : null;
+            delete rawData.cargo_id;
+        }
+
+        if (options.manualChanges && options.manualChanges.roles) {
+            rawData.roles = options.manualChanges.roles.new;
+        }
+
         detailsData = { data: rawData };
     } else {
         detailsData = { changes };
@@ -56,7 +77,7 @@ exports.handleModelAudit = async (instance, options, action) => {
 
     await auditService.createLog(options.req, {
         action: action,
-        module: module,
+        module: moduleName,
         entityId: instance.id,
         details: {
             ...detailsData,

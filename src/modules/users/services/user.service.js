@@ -5,6 +5,7 @@
 const sequelize = require("../../../config/db");
 const { User, Role, Cargo, Permission, Municipio, UserMunicipalityPermission, UserRole} = require("../../../database/associations");
 const auditService = require("../../audit/services/audit.service");
+const { handleModelAudit } = require("../../audit/utils/auditHelper");
 const bcrypt = require("bcryptjs");
 const { Op, fn, col, where } = require("sequelize");
 
@@ -156,22 +157,22 @@ exports.getUserById = async (id) => {
 exports.createUser = async (data, adminId, req) => {
     const transaction = await sequelize.transaction();
     try {
-        // --- MODIFICACIÓN: Ya no es obligatorio enviar municipios al crear ---
-        // if (!data.municipios || data.municipios.length === 0) throw new Error("Asignación territorial obligatoria.");
-
         if (data.password) data.password = await bcrypt.hash(data.password, 12);
 
+        // 1. Creamos el usuario desactivando el hook automático ({ req: null }) 
+        // para que no se dispare el log antes de tener roles
         const newUser = await User.create({
             ...data,
             created_by: adminId,
             updated_by: adminId,
             active: true
-        }, { transaction, req }); // <--- req activa el Hook automático
+        }, { transaction }); 
 
+        // 2. Asignación de Roles
         if (data.roles && data.roles.length > 0) {
-            await newUser.setRoles(data.roles, { transaction, req });
+            await newUser.setRoles(data.roles, { transaction });
 
-            // Solo propagamos permisos si se enviaron municipios
+            // 3. Propagación de municipios (Si existen)
             if (data.municipios && data.municipios.length > 0) {
                 const rolesWithPermissions = await Role.findAll({
                     where: { id: data.roles, active: true },
@@ -201,6 +202,17 @@ exports.createUser = async (data, adminId, req) => {
         }
 
         await transaction.commit();
+
+        // 4. AUDITORÍA MANUAL POST-COMMIT
+        // Preparamos los nombres de los roles para que el log de CREATE los incluya
+        const roles = await newUser.getRoles({ attributes: ['name'], joinTableAttributes: [] });
+        const rolesNames = roles.map(r => r.name);
+
+        await handleModelAudit(newUser, { 
+            req, 
+            manualChanges: { roles: { new: rolesNames } } // Se pasa para que el helper lo use
+        }, 'CREATE');
+
         return await this.getUserById(newUser.id);
     } catch (error) {
         await transaction.rollback();
@@ -214,42 +226,96 @@ exports.createUser = async (data, adminId, req) => {
 exports.updateUser = async (id, data, adminId, req) => {
     const transaction = await sequelize.transaction();
     try {
-        const user = await User.findByPk(id, { transaction });
+        const user = await User.findByPk(id, { 
+            transaction, 
+            include: [{ model: Role, as: 'roles', attributes: ['name'] }] 
+        });
         if (!user) throw new Error("Usuario no localizado.");
 
-        if (data.password) data.password = await bcrypt.hash(data.password, 12);
+        // 1. SNAPSHOTS PARA AUDITORÍA (Antes de modificar el objeto)
+        const oldRolesNames = user.roles.map(r => r.name);
+        const previousCargoId = user.cargo_id;
         
-        // El update automático generará el log de campos cambiados
-        await user.update({ ...data, updated_by: adminId }, { transaction, req });
-
-        if (data.roles !== undefined || data.municipios !== undefined) {
-            if (data.roles !== undefined) await user.setRoles(data.roles, { transaction, req });
-
-            let targetMunicipios = [];
-            
-            // Si vienen municipios, usamos esos. Si no, mantenemos los actuales.
-            if (data.municipios !== undefined) {
-                targetMunicipios = data.municipios;
-                
-                // Solo si realmente estamos actualizando municipios, tocamos la tabla de permisos
-                // Si data.municipios es undefined, no hacemos nada con permisos aquí.
-                
-                await UserMunicipalityPermission.destroy({ where: { user_id: id, is_exception: false }, transaction });
-
-                if (targetMunicipios.length > 0) {
-                    const verPerm = await Permission.findOne({ where: { name: 'ver', active: true }, transaction });
-                    const basePermId = verPerm ? verPerm.id : 1;
-                    const bulk = targetMunicipios.map(muniId => ({
-                        user_id: id, municipio_id: muniId, permission_id: basePermId, is_exception: false, active: true
-                    }));
-                    await UserMunicipalityPermission.bulkCreate(bulk, { transaction });
+        // Detectamos cambios en campos directos del modelo User antes del update
+        let manualChanges = {};
+        const fieldsToTrack = ['first_name', 'last_name', 'second_last_name', 'email', 'phone', 'username', 'password', 'active'];
+        
+        fieldsToTrack.forEach(field => {
+            if (data[field] !== undefined && data[field] !== user[field]) {
+                if (field === 'password') {
+                    manualChanges[field] = { old: "[PROTEGIDO]", new: "[DATO_MODIFICADO]" };
+                } else {
+                    manualChanges[field] = { 
+                        old: user[field], 
+                        new: data[field] 
+                    };
                 }
             }
+        });
+
+        // 2. Procesar password si existe
+        if (data.password) {
+            data.password = await bcrypt.hash(data.password, 12);
         }
+        
+        // 3. Actualizar el usuario (req: null para evitar el hook automático que está fallando)
+        await user.update({ ...data, updated_by: adminId }, { transaction, req: null });
+
+        // 4. Manejo de Roles
+        if (data.roles !== undefined) {
+            await user.setRoles(data.roles, { transaction });
+            const newRoles = await Role.findAll({ where: { id: data.roles }, attributes: ['name'], transaction });
+            const newRolesNames = newRoles.map(r => r.name);
+
+            if (JSON.stringify(oldRolesNames.sort()) !== JSON.stringify(newRolesNames.sort())) {
+                manualChanges['roles'] = { old: oldRolesNames, new: newRolesNames };
+            }
+        }
+
+        // 5. Manejo de Municipios
+        if (data.municipios !== undefined) {
+            await UserMunicipalityPermission.destroy({ where: { user_id: id, is_exception: false }, transaction });
+            if (data.municipios.length > 0) {
+                const verPerm = await Permission.findOne({ where: { name: 'ver', active: true }, transaction });
+                const bulk = data.municipios.map(muniId => ({
+                    user_id: id, 
+                    municipio_id: muniId, 
+                    permission_id: verPerm?.id || 1, 
+                    is_exception: false, 
+                    active: true
+                }));
+                await UserMunicipalityPermission.bulkCreate(bulk, { transaction });
+            }
+        }
+
+        // 6. Manejo específico de Cargo para Auditoría (Nombres en lugar de IDs)
+        if (data.cargo_id !== undefined && data.cargo_id != previousCargoId) {
+            const oldCargo = await Cargo.findByPk(previousCargoId, { attributes: ['nombre'], transaction });
+            const newCargo = await Cargo.findByPk(data.cargo_id, { attributes: ['nombre'], transaction });
+            
+            manualChanges['cargo'] = { 
+                old: oldCargo ? oldCargo.nombre : 'Sin cargo', 
+                new: newCargo ? newCargo.nombre : 'Sin cargo' 
+            };
+        }
+
         await transaction.commit();
+
+        // 7. Auditoría Manual
+        // Enviamos todos los cambios recolectados en manualChanges
+        const hasChanges = Object.keys(manualChanges).length > 0;
+        
+        if (hasChanges) {
+            await handleModelAudit(user, { 
+                req, 
+                manualChanges, 
+                forceAudit: true 
+            }, 'UPDATE');
+        }
+
         return await this.getUserById(id);
     } catch (error) {
-        await transaction.rollback();
+        if (transaction) await transaction.rollback();
         throw error;
     }
 };

@@ -71,7 +71,6 @@ const User = sequelize.define("User", {
     timestamps: true,
     paranoid: true,
     hooks: {
-        afterCreate: (instance, options) => handleModelAudit(instance, options, 'CREATE'),
         afterUpdate: (instance, options) => handleModelAudit(instance, options, 'UPDATE'),
         afterDestroy: (instance, options) => handleModelAudit(instance, options, 'DELETE')
     }
