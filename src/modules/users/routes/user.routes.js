@@ -5,7 +5,6 @@
 const express = require("express");
 const controller = require("../controllers/user.controller");
 const { protect } = require("../../auth/middlewares/auth.middleware");
-
 const router = express.Router();
 
 router.use(protect);
@@ -20,9 +19,7 @@ router.post("/", controller.createUser);
 router.put("/:id", controller.updateUser);
 router.delete("/:id", controller.deleteUser);
 
-
-// Gestión de excepciones de permisos
-router.patch("/:userId/permissions", controller.updateUserPermission);
+// Matriz de Permisos (Solo Batch y Raw)
 router.put("/:userId/permissions/batch", controller.updatePermissionsBatch);
 router.get("/:id/permissions-raw", controller.getUserPermissionsRaw);
 
