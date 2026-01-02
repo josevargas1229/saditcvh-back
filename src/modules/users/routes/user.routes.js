@@ -1,26 +1,37 @@
 /**
  * RUTAS: UserRoutes
- * DESCRIPCIÓN: Definición de servicios para la gestión de usuarios y seguridad granular.
  */
 const express = require("express");
 const controller = require("../controllers/user.controller");
-const { protect } = require("../../auth/middlewares/auth.middleware");
+const { protect, restrictTo } = require("../../auth/middlewares/auth.middleware");
 const router = express.Router();
 
+//roteger todas las rutas (Usuario debe estar logueado)
 router.use(protect);
 
-// --- Endpoints de Perfil ---
+//Endpoints de Perfil (Cualquier usuario logueado)
 router.get("/my-territories", controller.getMyTerritories);
 
-// --- Endpoints de Administración ---
-router.get("/", controller.getUsers);
-router.get("/:id", controller.getUserById);
-router.post("/", controller.createUser);
-router.put("/:id", controller.updateUser);
-router.delete("/:id", controller.deleteUser);
+// Endpoints de Administración (SOLO ADMINS)
 
-// Matriz de Permisos (Solo Batch y Raw)
-router.put("/:userId/permissions/batch", controller.updatePermissionsBatch);
-router.get("/:id/permissions-raw", controller.getUserPermissionsRaw);
+// Ver lista de usuarios
+router.get("/", restrictTo('administrador'), controller.getUsers);
+
+// Ver detalle
+router.get("/:id", restrictTo('administrador'), controller.getUserById);
+
+// Crear usuario
+router.post("/", restrictTo('administrador'), controller.createUser);
+
+// Actualizar usuario
+router.put("/:id", restrictTo('administrador'), controller.updateUser);
+
+// Eliminar usuario
+router.delete("/:id", restrictTo('administrador'), controller.deleteUser);
+
+// Matriz de Permisos
+router.put("/:userId/permissions/batch", restrictTo('administrador'), controller.updatePermissionsBatch);
+router.patch("/:userId/permissions", restrictTo('administrador'), controller.updateUserPermission);
+router.get("/:id/permissions-raw", restrictTo('administrador'), controller.getUserPermissionsRaw);
 
 module.exports = router;

@@ -107,6 +107,31 @@ exports.getUserPermissionsRaw = async (req, res, next) => {
 };
 
 
+exports.updateUserPermission = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const { municipioId, permissionId, value } = req.body; 
+
+        // Validación básica
+        if (!municipioId || !permissionId) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Faltan datos obligatorios (municipioId o permissionId)." 
+            });
+        }
+
+        await userService.updateSinglePermission(userId, municipioId, permissionId, value, req);
+        
+        return res.status(200).json({
+            success: true,
+            message: "Permiso actualizado correctamente."
+        });
+    } catch (err) { 
+        return next(err); 
+    }
+};
+
+
 exports.deleteUser = async (req, res, next) => {
     try {
         await userService.deleteUser(req.params.id, req);
