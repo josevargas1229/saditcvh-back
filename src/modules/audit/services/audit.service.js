@@ -205,16 +205,38 @@ exports.createLog = async (req, { action, module, entityId = null, details = {} 
 
 exports.getAuditLogs = async (filters) => {
     const { AuditLog, User, Role } = require("../../../database/associations");
+   const { Op, Sequelize } = require("sequelize");
     
     const { 
         page = 1, limit = 20, module, action, search, 
         startDate, endDate, roleId, sort = 'DESC' 
     } = filters;
     
+    // 1. DICCIONARIO DE TERMINOS HUMANOS
+    // Mapea lo que el usuario escribe -> a lo que la BD entiende
+    const termMapping = {
+        'acceso': 'LOGIN',
+        'entrada': 'LOGIN',
+        'logueo': 'LOGIN',
+        'salida': 'LOGOUT',
+        'registro': 'CREATE',
+        'crear': 'CREATE',
+        'nuevo': 'CREATE',
+        'edicion': 'UPDATE',
+        'editar': 'UPDATE',
+        'cambio': 'UPDATE', // Esto cubre UPDATE y UPDATE_PERMS
+        'eliminar': 'DELETE',
+        'borrar': 'DELETE',
+        'consulta': 'VIEW',
+        'ver': 'VIEW',
+        'descarga': 'DOWNLOAD',
+        'permiso': 'PERMS'
+    };
+
     const offset = (page - 1) * limit;
     const where = {};
 
-    // Filtros directos (Muy rápidos por tus índices)
+    // Filtros directos 
     if (module && module !== 'ALL') where.module = module;
     if (action) where.action = action;
     if (startDate || endDate) {
@@ -236,10 +258,31 @@ exports.getAuditLogs = async (filters) => {
     // Construcción de la búsqueda
     const searchWhere = [];
     if (search) {
-        searchWhere.push({ action: { [Op.iLike]: `%${search}%` } });
-        searchWhere.push({ entity_id: { [Op.iLike]: `%${search}%` } });
-        // Solo buscamos en username si el search no es vacío
-        searchWhere.push({ '$user.username$': { [Op.iLike]: `%${search}%` } });
+        const term = search.trim(); // Limpiamos espacios
+        
+        // A. Busqueda Literal (Lo que el usuario escribió exactamente)
+        searchWhere.push({ action: { [Op.iLike]: `%${term}%` } });
+        searchWhere.push({ entity_id: { [Op.iLike]: `%${term}%` } });
+        searchWhere.push({ '$user.username$': { [Op.iLike]: `%${term}%` } });
+        
+        // B. Busqueda en Detalles (SOLUCION PARA RASTREO FORENSE - ver punto 2 abajo)
+        searchWhere.push(
+            Sequelize.where(
+                Sequelize.cast(Sequelize.col('AuditLog.details'), 'text'),
+                { [Op.iLike]: `%${term}%` }
+            )
+        );
+
+        // C. Busqueda "Humanizada" (Usando el diccionario)
+        // Recorremos el diccionario para ver si la búsqueda coincide con palabras clave
+        Object.keys(termMapping).forEach(key => {
+            // Si el usuario escribió "cambio permiso", detectamos "cambio" y "permiso"
+            if (term.toLowerCase().includes(key)) {
+                const technicalTerm = termMapping[key];
+                searchWhere.push({ action: { [Op.iLike]: `%${technicalTerm}%` } });
+            }
+        });
+
         where[Op.or] = searchWhere;
     }
 
@@ -248,7 +291,7 @@ exports.getAuditLogs = async (filters) => {
         limit: parseInt(limit),
         offset: parseInt(offset),
         order: [['created_at', sort.toUpperCase() === 'ASC' ? 'ASC' : 'DESC']],
-        attributes: ['id', 'user_id', 'action', 'module', 'entity_id', 'ip_address', 'created_at'],
+        attributes: ['id', 'user_id', 'action', 'module', 'entity_id', 'ip_address', 'created_at', 'details'],
         // Optimizamos el subQuery para que no se alente con el count
         subQuery: false, 
         include: [{
