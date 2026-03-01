@@ -207,11 +207,11 @@ exports.getAuditLogs = async (filters) => {
     const { AuditLog, User, Role } = require("../../../database/associations");
     
     const { 
-        page = 1, limit = 20, module, action, search, 
+        cursor, limit = 20, module, action, search, 
         startDate, endDate, roleId, sort = 'DESC' 
     } = filters;
     
-    const offset = (page - 1) * limit;
+    // Eliminado el offset = (page - 1) * limit
     const where = {};
 
     // Filtros directos (Muy rápidos por tus índices)
@@ -243,29 +243,50 @@ exports.getAuditLogs = async (filters) => {
         where[Op.or] = searchWhere;
     }
 
-    return await AuditLog.findAndCountAll({
+    // Condicion del Cursor (Aislarla del count)
+    const countWhere = { ...where };
+    if (cursor) {
+        where.id = sort.toUpperCase() === 'ASC' ? { [Op.gt]: parseInt(cursor) } : { [Op.lt]: parseInt(cursor) };
+    }
+
+    // 1. Obtener conteo total sin la restricción del cursor
+    const count = await AuditLog.count({
+        where: countWhere,
+        include: [{
+            model: User,
+            as: 'user',
+            required: (roleId && roleId !== 'ALL') || (search ? true : false), 
+            include: (roleId && roleId !== 'ALL') ? [{
+                model: Role,
+                as: 'roles',
+                where: { id: roleId }
+            }] : []
+        }]
+    });
+
+    // 2. Obtener los registros usando Cursor (basado en ID autoincremental)
+    const rows = await AuditLog.findAll({
         where,
         limit: parseInt(limit),
-        offset: parseInt(offset),
-        order: [['created_at', sort.toUpperCase() === 'ASC' ? 'ASC' : 'DESC']],
+        order: [['id', sort.toUpperCase() === 'ASC' ? 'ASC' : 'DESC']],
         attributes: ['id', 'user_id', 'action', 'module', 'entity_id', 'ip_address', 'created_at'],
-        // Optimizamos el subQuery para que no se alente con el count
         subQuery: false, 
         include: [{
             model: User,
             as: 'user',
             attributes: ['username','first_name', 'last_name'],
-            // Si hay RoleId, forzamos INNER JOIN para filtrar
             required: (roleId && roleId !== 'ALL') || (search ? true : false), 
             include: (roleId && roleId !== 'ALL') ? [{
                 model: Role,
                 as: 'roles',
                 where: { id: roleId },
-                attributes: [], // No necesitamos los nombres de los roles en la lista
+                attributes: [],
                 through: { attributes: [] }
             }] : []
         }]
     });
+
+    return { count, rows };
 };
 
 exports.getAuditLogById = async (id) => {
