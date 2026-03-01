@@ -52,10 +52,15 @@ class CargaMasivaService {
                         await leerCarpetasRecursivamente(fullPath, relativePath);
                     } else if (item.isFile() && item.name.toLowerCase().endsWith('.pdf')) {
                         const buffer = await fs.readFile(fullPath);
+                        
+                        // Extraer solo la nomenclatura oficial mediante Regex
+                        const match = item.name.match(/^(\d+)\s+(\d+)-(\d+)-(\d+)-(\d+)\s+([CP])/i);
+                        const nombreLimpio = match ? `${match[0]}.pdf` : item.name;
+
                         archivos.push({
-                            nombre: item.name,
+                            nombre: nombreLimpio,
                             buffer: buffer,
-                            rutaRelativa: relativePath,
+                            rutaRelativa: path.join(basePath, nombreLimpio),
                             tamano: buffer.length,
                             extension: path.extname(item.name)
                         });
