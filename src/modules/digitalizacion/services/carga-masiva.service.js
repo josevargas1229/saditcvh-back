@@ -715,17 +715,30 @@ class CargaMasivaService {
                         });
 
                 } catch (error) {
-                    console.error(`Error preparando ** ${archivo.nombre}:`, error);
-                    // Crear registro fallado
-                    await this.ocrProcesoModel.create({
-                        loteId,
-                        nombreArchivo: archivo.nombre,
-                        autorizacionId: null,
-                        userId,
-                        estado: 'fallado',
-                        error: error.message,
-                        metadata: { error: true }
-                    });
+                    console.error(`Error procesando [${archivo.nombre}]:`, error.message);
+                    
+                    if (error.message.includes('nomenclatura obligatoria')) {
+                        // Archivos sin nomenclatura no tienen Autorizacion asociada
+                        // Ignorarlos silenciamente para no romper la BD con Null constraints
+                        console.warn(`[OMITIDO] Archivo inválido extraído del ZIP: ${archivo.nombre}`);
+                    } else {
+                        // Crear registro fallado de manera válida para otros errores funcionales
+                        // (Si la autorización sí existió pero falló el archivo)
+                        try {
+                            await this.ocrProcesoModel.create({
+                                lote_id: loteId,
+                                archivo_id: `temp_${Date.now()}_err`,
+                                nombre_archivo: archivo.nombre,
+                                autorizacion_id: null,
+                                user_id: userId,
+                                estado: 'fallado',
+                                error: error.message,
+                                metadata: { error: true }
+                            });
+                        } catch (bdError) {
+                            console.error('No se pudo registrar el fallo en BD:', bdError.message);
+                        }
+                    }
                 }
             }
 
