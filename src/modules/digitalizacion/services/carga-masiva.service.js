@@ -55,15 +55,25 @@ class CargaMasivaService {
                         
                         // Extraer solo la nomenclatura oficial mediante Regex
                         const match = item.name.match(/^(\d+)\s+(\d+)-(\d+)-(\d+)-(\d+)\s+([CP])/i);
-                        const nombreLimpio = match ? `${match[0]}.pdf` : item.name;
-
-                        archivos.push({
-                            nombre: nombreLimpio,
-                            buffer: buffer,
-                            rutaRelativa: path.join(basePath, nombreLimpio),
-                            tamano: buffer.length,
-                            extension: path.extname(item.name)
-                        });
+                        if (!match) {
+                            archivos.push({
+                                nombre: item.name,
+                                buffer: buffer,
+                                rutaRelativa: path.join(basePath, item.name),
+                                tamano: buffer.length,
+                                extension: path.extname(item.name),
+                                errorNomenclatura: true
+                            });
+                        } else {
+                            const nombreLimpio = `${match[0]}.pdf`;
+                            archivos.push({
+                                nombre: nombreLimpio,
+                                buffer: buffer,
+                                rutaRelativa: path.join(basePath, nombreLimpio),
+                                tamano: buffer.length,
+                                extension: path.extname(item.name)
+                            });
+                        }
                     }
                 }
             };
@@ -259,8 +269,8 @@ class CargaMasivaService {
                     estadoOCR = 'completado';
                 } else {
                     estadoOCR = 'fallido';
-                    // Puedes decidir si continuar sin OCR o fallar
-                    console.warn(`OCR falló para ${archivoData.nombre}: ${resultadoOCR.error}`);
+                    // LANZAR ERROR PARA NO GUARDAR EL ARCHIVO POR RECHAZO DE PYTHON
+                    throw new Error(`Rechazado en validación de servidor Python: ${resultadoOCR.error || 'Falla OCR'}`);
                 }
             }
 
@@ -543,6 +553,12 @@ class CargaMasivaService {
                         let proceso = null; // importante para poder actualizarlo en catch
 
                         try {
+                            // ================================
+                            // Validar antes de procesar
+                            if (archivo.errorNomenclatura) {
+                                throw new Error('El archivo no cumple con la nomenclatura obligatoria');
+                            }
+                            
                             // Parsear nombre del archivo
                             const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
 
@@ -650,6 +666,12 @@ class CargaMasivaService {
 
             for (const archivo of archivos) {
                 try {
+                    // ================================
+                    // Validar antes de procesar
+                    if (archivo.errorNomenclatura) {
+                        throw new Error('El archivo no cumple con la nomenclatura obligatoria');
+                    }
+                
                     // Parsear nombre para obtener datos de autorización
                     const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
 
