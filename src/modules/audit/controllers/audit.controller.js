@@ -3,15 +3,20 @@ const auditService = require("../services/audit.service");
 exports.getLogs = async (req, res, next) => {
     try {
         const result = await auditService.getAuditLogs(req.query);
+        const rows = result.rows;
         
+        let nextCursor = null;
+        if (rows.length > 0) {
+            nextCursor = rows[rows.length - 1].id;
+        }
+
         return res.status(200).json({
             success: true,
-            data: result.rows,
+            data: rows,
             pagination: {
                 total: result.count,
-                page: parseInt(req.query.page) || 1,
-                limit: parseInt(req.query.limit) || 20,
-                totalPages: Math.ceil(result.count / (parseInt(req.query.limit) || 20))
+                nextCursor: nextCursor,
+                limit: parseInt(req.query.limit) || 20
             }
         });
     } catch (err) {
