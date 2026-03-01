@@ -116,46 +116,89 @@ class AnotacionService {
      */
     async crearAnotacion(documentoId, usuarioId, datos) {
         try {
-            console.log('📝 Creando anotación para documento:', documentoId, 'usuario:', usuarioId);
+            console.log('📝 Creando/Actualizando anotación para documento:', documentoId, 'usuario:', usuarioId);
+
+            // Crear una clave única basada en documento_id y usuario_id
+            const archivoNombre = `documento_${documentoId}_usuario_${usuarioId}`;
+            const documentoUrl = `document://${documentoId}`;
+
+            // Verificar si ya existe una anotación para este archivo y usuario
+            const existeQuery = `
+                SELECT id FROM anotaciones 
+                WHERE archivo_nombre = :archivoNombre 
+                AND usuario_id = :usuarioId
+                LIMIT 1
+            `;
+
+            const existe = await sequelize.query(existeQuery, {
+                replacements: { archivoNombre, usuarioId },
+                type: QueryTypes.SELECT
+            });
 
             // Usaremos metadata para almacenar el documento_id ya que tu tabla no tiene esa columna
             const metadata = {
                 ...(datos.metadata || {}),
                 documento_id: documentoId,
                 fecha_guardado: new Date().toISOString(),
-                total_comentarios: (datos.comentarios || []).length
+                total_comentarios: (datos.comentarios || []).length,
+                es_actualizacion: existe.length > 0,
+                fecha_actualizacion: existe.length > 0 ? new Date().toISOString() : undefined
             };
 
-            // Crear una clave única basada en documento_id y usuario_id
-            const archivoNombre = `documento_${documentoId}_usuario_${usuarioId}`;
-            const documentoUrl = `document://${documentoId}`;
+            if (existe.length > 0) {
+                console.log('🔄 Actualizando anotación existente, ID:', existe[0].id);
 
-            const insertQuery = `
-                INSERT INTO anotaciones (
-                    archivo_nombre, documento_url, usuario_id, 
-                    comentarios, metadata, created_at
-                ) VALUES (
-                    :archivoNombre, :documentoUrl, :usuarioId, 
-                    :comentarios::jsonb, :metadata::jsonb, NOW()
-                ) RETURNING *
-            `;
+                const updateQuery = `
+                    UPDATE anotaciones 
+                    SET comentarios = :comentarios::jsonb, 
+                        metadata = :metadata::jsonb,
+                        documento_url = :documentoUrl
+                    WHERE id = :id
+                    RETURNING *
+                `;
 
-            const result = await sequelize.query(insertQuery, {
-                replacements: {
-                    archivoNombre,
-                    documentoUrl,
-                    usuarioId,
-                    comentarios: JSON.stringify(datos.comentarios || []),
-                    metadata: JSON.stringify(metadata)
-                },
-                type: QueryTypes.INSERT
-            });
+                const result = await sequelize.query(updateQuery, {
+                    replacements: {
+                        id: existe[0].id,
+                        comentarios: JSON.stringify(datos.comentarios || []),
+                        metadata: JSON.stringify(metadata),
+                        documentoUrl
+                    },
+                    type: QueryTypes.UPDATE
+                });
 
-            console.log('✅ Anotación creada:', result[0][0].id);
-            return result[0][0];
+                console.log('✅ Anotación actualizada:', result[0][0].id);
+                return result[0][0];
+            } else {
+                console.log('🆕 Creando nueva anotación');
+
+                const insertQuery = `
+                    INSERT INTO anotaciones (
+                        archivo_nombre, documento_url, usuario_id, 
+                        comentarios, metadata, created_at
+                    ) VALUES (
+                        :archivoNombre, :documentoUrl, :usuarioId, 
+                        :comentarios::jsonb, :metadata::jsonb, NOW()
+                    ) RETURNING *
+                `;
+
+                const result = await sequelize.query(insertQuery, {
+                    replacements: {
+                        archivoNombre,
+                        documentoUrl,
+                        usuarioId,
+                        comentarios: JSON.stringify(datos.comentarios || []),
+                        metadata: JSON.stringify(metadata)
+                    },
+                    type: QueryTypes.INSERT
+                });
+
+                console.log('✅ Anotación creada:', result[0][0].id);
+                return result[0][0];
+            }
         } catch (error) {
             console.error('❌ Error en crearAnotacion:', error);
-            throw new Error(`Error al crear anotación: ${error.message}`);
+            throw new Error(`Error al crear/actualizar anotación: ${error.message}`);
         }
     }
 
