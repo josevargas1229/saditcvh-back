@@ -306,13 +306,17 @@ class DocumentoService {
   async obtenerDocumentosPorAutorizacion(autorizacionId, userId) {
     try {
       const documentos = await Documento.findAll({
-        where: { autorizacionId },
+        where: {
+          autorizacionId,
+          documento_padre_id: null, // Solo traer documentos raíz
+        },
         paranoid: false,
         include: [
           {
             model: ArchivoDigital,
             as: "archivosDigitales",
             required: false,
+            paranoid: false,
             include: [
               {
                 model: User,
