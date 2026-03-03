@@ -324,11 +324,11 @@ class CargaMasivaService {
       await fs.writeFile(rutaArchivo, bufferFinal);
 
       // NUEVO: Notificar a Python sobre la nueva ruta
-      const pdfIdParaPython = nombreArchivo.replace(/\.pdf$/i, "");
-      OCRProcessorService.actualizarRutaFinal(
-        pdfIdParaPython,
-        rutaArchivo,
-      ).catch(console.error);
+      // const pdfIdParaPython = nombreArchivo.replace(/\.pdf$/i, "");
+      // OCRProcessorService.actualizarRutaFinal(
+      //   pdfIdParaPython,
+      //   rutaArchivo,
+      // ).catch(console.error);
 
       // Calcular checksums del archivo final
       const checksumMd5 = crypto
@@ -1109,11 +1109,11 @@ class CargaMasivaService {
         await fs.writeFile(rutaArchivo, pdfResult.pdfBuffer);
 
         // NUEVO: Notificar a Python sobre la nueva ruta
-        const pdfIdParaPython = nombreArchivo.replace(/\.pdf$/i, "");
-        OCRProcessorService.actualizarRutaFinal(
-          pdfIdParaPython,
-          rutaArchivo,
-        ).catch(console.error);
+        // const pdfIdParaPython = nombreArchivo.replace(/\.pdf$/i, "");
+        // OCRProcessorService.actualizarRutaFinal(
+        //   pdfIdParaPython,
+        //   rutaArchivo,
+        // ).catch(console.error);
 
         // Opcional: También actualizar la UUID original para que el status task apunte correctamente
         OCRProcessorService.actualizarRutaFinal(pythonPdfId, rutaArchivo).catch(
