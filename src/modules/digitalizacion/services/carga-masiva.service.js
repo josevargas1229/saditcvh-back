@@ -88,7 +88,7 @@ class CargaMasivaService {
       // Regex robusta para capturar: AuthNum | Muni | Mod | Cons1 | Cons2 | Tipo (opcional)
       // separador puede ser espacio, guion o guion bajo
       const regex =
-        /^(\d+)[\s_-]+(\d+)[\s_-]+(\d+)[\s_-]+(\d+)[\s_-]+(\d+)[\s_-]*([a-zA-Z]+)?/i;
+        /^(\d+)[_\s-]+(\d+)[_\s-]+(\d+)[_\s-]+(\d+)[_\s-]+(\d+)[_\s-]*([a-zA-Z]+)?/i;
       const match = nombreSinPaginas.match(regex);
 
       if (!match) {
@@ -1110,10 +1110,10 @@ class CargaMasivaService {
 
         // NUEVO: Notificar a Python sobre la nueva ruta
         const pdfIdParaPython = nombreArchivo.replace(/\.pdf$/i, "");
-        //OCRProcessorService.actualizarRutaFinal(
-          //pdfIdParaPython,
-          //rutaArchivo,
-        //).catch(console.error);
+        OCRProcessorService.actualizarRutaFinal(
+          pdfIdParaPython,
+          rutaArchivo,
+        ).catch(console.error);
 
         // Opcional: También actualizar la UUID original para que el status task apunte correctamente
         OCRProcessorService.actualizarRutaFinal(pythonPdfId, rutaArchivo).catch(
