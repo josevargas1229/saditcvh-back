@@ -1,4 +1,3 @@
-// services/ocr-processor.service.js
 const axios = require('axios');
 const FormData = require('form-data');
 
@@ -36,7 +35,7 @@ class OCRProcessorService {
             return {
                 success: true,
                 taskId: response.data.task_id || "",
-                pythonPdfId: response.data.pdf_id, // ESTE es el que se usa para /upload-status y descargas
+                pythonPdfId: response.data.id, // EXTRAE EL 'id' devuelto por python (no pdf_id)
                 status: 'pending'
             };
 
