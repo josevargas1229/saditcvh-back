@@ -421,15 +421,19 @@ class DocumentoService {
       }
 
       // 2. Desactivar versión actual del documento original
-      await documentoOriginal.update({ versionActual: false }, { transaction });
+      await documentoOriginal.update(
+        { version_actual: false },
+        { transaction },
+      );
 
       // 3. Crear nueva versión
       const nuevaVersionData = {
         ...documentoOriginal.toJSON(),
         id: undefined, // Para que cree nuevo registro
         version: documentoOriginal.version + 1,
-        versionActual: true,
-        documentoPadreId: documentoOriginal.id,
+        version_actual: true,
+        documento_padre_id:
+          documentoOriginal.documento_padre_id || documentoOriginal.id,
         titulo: data.titulo || documentoOriginal.titulo,
         descripcion: data.descripcion || documentoOriginal.descripcion,
         fechaDocumento: data.fechaDocumento || documentoOriginal.fechaDocumento,
