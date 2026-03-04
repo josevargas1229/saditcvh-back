@@ -356,7 +356,9 @@ class CargaMasivaService {
           descripcion: `Documento cargado masivamente: ${archivoData.nombreOriginal}`,
           version: version,
           version_actual: true,
-          documentoPadreId: documentoExistente ? documentoExistente.id : null,
+          documento_padre_id: documentoExistente
+            ? documentoExistente.documento_padre_id || documentoExistente.id
+            : null,
           estadoDigitalizacion: "digitalizado",
           paginas: this.estimarPaginas(bufferFinal),
           creadoPor: userId,
@@ -1146,7 +1148,9 @@ class CargaMasivaService {
             descripcion: `Documento procesado con OCR: ${archivoData.nombre}`,
             version: version,
             version_actual: true,
-            documentoPadreId: documentoExistente ? documentoExistente.id : null,
+            documento_padre_id: documentoExistente
+              ? documentoExistente.documento_padre_id || documentoExistente.id
+              : null,
             estadoDigitalizacion: "digitalizado",
             paginas: this.estimarPaginas(pdfResult.pdfBuffer),
             creadoPor: userId,
