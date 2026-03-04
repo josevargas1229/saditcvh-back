@@ -476,6 +476,17 @@ class DocumentoService {
           }
         });
 
+        // INYECCION DEBUG
+        const debugWorkaround = {
+          idsDetectadosEnCiclo: idsRevision,
+          archivosRecuperadosBdCifra: 0,
+          idsExtraidosDesdeTabla: [],
+        };
+        if (documentos.length > 0) {
+          documentos[0]._debugWorkaround = debugWorkaround;
+        }
+        // FIN DEBUG
+
         if (idsRevision.length > 0) {
           const recuperadosModels = await ArchivoDigital.findAll({
             where: { documento_id: idsRevision },
@@ -497,6 +508,14 @@ class DocumentoService {
             ],
           });
           const recuperados = recuperadosModels.map((m) => m.toJSON());
+
+          // INYECCION DEBUG RELLENO
+          debugWorkaround.archivosRecuperadosBdCifra = recuperados.length;
+          debugWorkaround.idsExtraidosDesdeTabla = recuperados.map((r) => r.id);
+          if (documentos.length > 0) {
+            documentos[0]._debugWorkaround = debugWorkaround;
+          }
+          // FIN
 
           documentos.forEach((doc) => {
             if (idsRevision.includes(doc.id)) {
