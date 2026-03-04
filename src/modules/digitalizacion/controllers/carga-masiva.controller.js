@@ -150,7 +150,10 @@ class CargaMasivaController {
                     userId,
                     loteId,
                     {
-                        allowSinNomenclatura: false, // NORMAL estricto
+                        allowSinNomenclatura: true,
+                        municipioFallbackNum: 85,
+                        modalidadFallbackNum: 1,
+                        tipoFallbackAbrev: 'SP',
                         origen: 'DIRECTO'
                     }
                 ).catch(error => console.error('Error en procesamiento asíncrono:', error));
