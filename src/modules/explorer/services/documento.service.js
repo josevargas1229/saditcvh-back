@@ -333,6 +333,33 @@ class DocumentoService {
             order: [["version_archivo", "DESC"]],
             limit: 1,
           },
+          {
+            model: Documento,
+            as: "versiones",
+            required: false,
+            paranoid: false,
+            include: [
+              {
+                model: ArchivoDigital,
+                as: "archivosDigitales",
+                required: false,
+                paranoid: false,
+                include: [
+                  {
+                    model: User,
+                    as: "digitalizadoPor",
+                    attributes: [
+                      "id",
+                      "first_name",
+                      "last_name",
+                      "second_last_name",
+                      "email",
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
         ],
         order: [["created_at", "DESC"]],
       });
