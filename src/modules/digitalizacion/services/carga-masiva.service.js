@@ -1539,7 +1539,7 @@ class CargaMasivaService {
           const datosArchivo = this.obtenerDatosArchivo(archivo.originalname, {
             allowSinNomenclatura: true,  // porque este método se llama SOLO desde el flujo sin-nomenclatura
             municipioFallbackNum: 85,
-            modalidadFallbackNum: 1,
+            modalidadFallbackNum: 52,
             tipoFallbackAbrev: 'SP'
           });
           autorizacionInfo = await this.buscarOCrearAutorizacionRapido(
@@ -1728,7 +1728,7 @@ class CargaMasivaService {
     const {
       allowSinNomenclatura = false,
       municipioFallbackNum = 85,
-      modalidadFallbackNum = 1,
+      modalidadFallbackNum = 52,
       tipoFallbackAbrev = 'SP',
     } = opciones;
 
