@@ -1540,7 +1540,7 @@ class CargaMasivaService {
             allowSinNomenclatura: true,  // porque este método se llama SOLO desde el flujo sin-nomenclatura
             municipioFallbackNum: 85,
             modalidadFallbackNum: 52,
-            tipoFallbackAbrev: 'SP'
+            tipoFallbackAbrev: 'P'
           });
           autorizacionInfo = await this.buscarOCrearAutorizacionRapido(
             datosArchivo,
@@ -1729,7 +1729,7 @@ class CargaMasivaService {
       allowSinNomenclatura = false,
       municipioFallbackNum = 85,
       modalidadFallbackNum = 52,
-      tipoFallbackAbrev = 'SP',
+      tipoFallbackAbrev = 'P',
     } = opciones;
 
     try {
@@ -1742,10 +1742,10 @@ class CargaMasivaService {
       }
 
       // Modo sin nomenclatura → fallback silencioso
-      console.warn(`[SIN NOMENCLATURA] Nombre inválido (${nombreArchivo}) → usando fallback SP-85-01`);
+      console.warn(`[SIN NOMENCLATURA] Nombre inválido (${nombreArchivo}) → usando fallback P-85-01`);
 
       return {
-        numeroAutorizacion: `SP-${Date.now()}`,
+        numeroAutorizacion: `P-${Date.now()}`,
         municipioNum: municipioFallbackNum,
         modalidadNum: modalidadFallbackNum,
         tipoAbrev: tipoFallbackAbrev,

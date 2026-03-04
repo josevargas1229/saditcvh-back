@@ -153,7 +153,7 @@ class CargaMasivaController {
                         allowSinNomenclatura: true,
                         municipioFallbackNum: 85,
                         modalidadFallbackNum: 52,
-                        tipoFallbackAbrev: 'SP',
+                        tipoFallbackAbrev: 'P',
                         origen: 'DIRECTO'
                     }
                 ).catch(error => console.error('Error en procesamiento asíncrono:', error));
@@ -311,7 +311,7 @@ class CargaMasivaController {
                         allowSinNomenclatura: true,
                         municipioFallbackNum: 85,
                         modalidadFallbackNum: 52,
-                        tipoFallbackAbrev: 'SP',
+                        tipoFallbackAbrev: 'P',
                         origen: 'COMPRIMIDO'
                     }
                 ).catch(err => console.error('Error en procesamiento asíncrono:', err));
@@ -340,7 +340,7 @@ class CargaMasivaController {
                     allowSinNomenclatura: true,
                     municipioFallbackNum: 85,
                     modalidadFallbackNum: 52,
-                    tipoFallbackAbrev: 'SP'
+                    tipoFallbackAbrev: 'P'
                 }
             );
 
@@ -394,7 +394,7 @@ class CargaMasivaController {
                         allowSinNomenclatura: true,
                         municipioFallbackNum: 85,
                         modalidadFallbackNum: 52,
-                        tipoFallbackAbrev: 'SP',
+                        tipoFallbackAbrev: 'P',
                         origen: 'DIRECTO'
                     }
                 ).catch(err => console.error('Error en procesamiento asíncrono:', err));
@@ -424,7 +424,7 @@ class CargaMasivaController {
                     allowSinNomenclatura: true,
                     municipioFallbackNum: 85,
                     modalidadFallbackNum: 52,
-                    tipoFallbackAbrev: 'SP'
+                    tipoFallbackAbrev: 'P'
                 }
             );
 
