@@ -17,15 +17,12 @@ class CargaMasivaController {
             console.log('-----------------------------------------------');
 
             if (!req.file) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'No se proporcionó archivo'
-                });
+                return res.status(400).json({ success: false, message: 'No se proporcionó archivo' });
             }
 
             const userId = req.user.id;
             const extension = path.extname(req.file.originalname).toLowerCase();
-            
+
             if (!['.zip', '.rar'].includes(extension)) {
                 return res.status(400).json({
                     success: false,
@@ -35,123 +32,133 @@ class CargaMasivaController {
 
             const useOcr = req.body.useOcr === 'true';
 
-            // 1. Extraer archivos y validar la nomenclatura ANTES de procesar
-            const archivos = await CargaMasivaService.extraerArchivosComprimidos(
-                req.file.buffer,
-                extension
-            );
+            // 1) Extraer PDFs del ZIP
+            const archivos = await CargaMasivaService.extraerArchivosComprimidos(req.file.buffer, extension);
 
-            if (archivos.length === 0) {
+            if (!archivos || archivos.length === 0) {
                 return res.status(400).json({
                     success: false,
                     message: 'No se encontraron archivos PDF dentro del archivo proporcionado'
                 });
             }
 
-            const validos = archivos.filter(a => !a.errorNomenclatura);
-            if (validos.length === 0) {
+            // 2) Regla NORMAL: si hay 1 inválido => se rechaza TODO (OCR ON u OFF)
+            const invalidos = archivos.filter(a => a.errorNomenclatura);
+            if (invalidos.length > 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Fallo al subir archivo: Ningún documento del ZIP cumple con la nomenclatura obligatoria.'
+                    message: 'Fallo al subir: hay PDFs dentro del ZIP que no cumplen la nomenclatura obligatoria.',
+                    invalidos: invalidos.map(a => a.nombreOriginal || a.nombre)
                 });
             }
 
+            // 3) Si OCR ON => asíncrono
             if (useOcr) {
-                // Modo asíncrono: iniciar proceso y responder inmediatamente
                 const loteId = `lote_${Date.now()}_${userId}`;
-                
-                // Iniciar procesamiento en segundo plano (pasando el arreglo de archivos ya extraídos)
-                CargaMasivaService.iniciarProcesamientoOCRAsincrono(
-                    validos,  // Solo enviamos los válidos
-                    userId,
-                    loteId
-                ).catch(error => {
-                    console.error('Error en procesamiento asíncrono:', error);
-                });
 
-                res.json({
+                CargaMasivaService.iniciarProcesamientoOCRAsincrono(
+                    archivos,
+                    userId,
+                    loteId,
+                    {
+                        allowSinNomenclatura: false, // NORMAL estricto
+                        origen: 'COMPRIMIDO'
+                    }
+                ).catch(error => console.error('Error en procesamiento asíncrono:', error));
+
+                return res.json({
                     success: true,
                     message: 'Procesamiento OCR iniciado en segundo plano',
-                    loteId: loteId,
+                    loteId,
                     modo: 'asincrono',
                     endpoints: {
                         estado: `/api/carga-masiva/estado-ocr/${loteId}`,
                         resultados: `/api/carga-masiva/resultados-ocr/${loteId}`
                     }
                 });
-            } else {
-                const loteId = `lote_sync_${Date.now()}_${userId}`;
-
-                const resultados = await CargaMasivaService.procesarCargaMasiva(
-                    archivos, // Se mandan todos, los inválidos dirán `Omitido` internamente en la validación del servicio
-                    userId,
-                    { 
-                        useOcr: false,
-                        loteId,
-                        origen: 'COMPRIMIDO'
-                    }
-                );
-
-
-                res.json({
-                    success: true,
-                    message: 'Carga masiva completada',
-                    resultados,
-                    modo: 'sincrono'
-                });
             }
+
+            // 4) OCR OFF => sincrónico
+            const loteId = `lote_sync_${Date.now()}_${userId}`;
+
+            const resultados = await CargaMasivaService.procesarCargaMasiva(
+                archivos,
+                userId,
+                {
+                    useOcr: false,
+                    loteId,
+                    origen: 'COMPRIMIDO',
+                    allowSinNomenclatura: false // NORMAL estricto
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: 'Carga masiva completada',
+                resultados,
+                modo: 'sincrono'
+            });
 
         } catch (error) {
             console.error('Error en procesarArchivoComprimido:', error);
-            res.status(500).json({
-                success: false,
-                message: error.message
-            });
+            return res.status(500).json({ success: false, message: error.message });
         }
     }
-
-    // Procesar múltiples archivos PDF directamente
+    // Procesar múltiples archivos PDF directamente - NORMAL (estricto)
     async procesarArchivosMultiples(req, res) {
         try {
             if (!req.files || req.files.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'No se proporcionaron archivos'
-                });
+                return res.status(400).json({ success: false, message: 'No se proporcionaron archivos' });
             }
 
             const userId = req.user.id;
             const useOcr = req.body.useOcr === 'true';
 
-            if (useOcr) {
-                // Modo asíncrono
-                const loteId = `lote_directo_${Date.now()}_${userId}`;
-                
-                // Filtrar solo archivos PDF
-                const archivosPDF = req.files.filter(file => 
-                    file.mimetype === 'application/pdf'
-                );
+            // Filtrar solo PDFs
+            const archivosPDF = req.files.filter(file =>
+                file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')
+            );
 
-                if (archivosPDF.length === 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'No se encontraron archivos PDF'
-                    });
+            if (archivosPDF.length === 0) {
+                return res.status(400).json({ success: false, message: 'No se encontraron archivos PDF' });
+            }
+
+            // Regla NORMAL: si hay 1 inválido => se rechaza TODO (OCR ON u OFF)
+            const invalidos = [];
+            for (const f of archivosPDF) {
+                try {
+                    CargaMasivaService.parsearNombreArchivo(f.originalname);
+                } catch (e) {
+                    invalidos.push(f.originalname);
                 }
+            }
 
-                // Iniciar procesamiento en segundo plano
+            if (invalidos.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Fallo al subir: hay archivos que no cumplen la nomenclatura obligatoria.',
+                    invalidos
+                });
+            }
+
+            // OCR ON => asíncrono
+            if (useOcr) {
+                const loteId = `lote_directo_${Date.now()}_${userId}`;
+
                 CargaMasivaService.iniciarProcesamientoDirectoOCRAsincrono(
                     archivosPDF,
                     userId,
-                    loteId
-                ).catch(error => {
-                    console.error('Error en procesamiento asíncrono:', error);
-                });
+                    loteId,
+                    {
+                        allowSinNomenclatura: false, // NORMAL estricto
+                        origen: 'DIRECTO'
+                    }
+                ).catch(error => console.error('Error en procesamiento asíncrono:', error));
 
-                res.json({
+                return res.json({
                     success: true,
                     message: 'Procesamiento OCR iniciado en segundo plano',
-                    loteId: loteId,
+                    loteId,
                     totalArchivos: archivosPDF.length,
                     modo: 'asincrono',
                     endpoints: {
@@ -159,39 +166,32 @@ class CargaMasivaController {
                         resultados: `/api/carga-masiva/resultados-ocr/${loteId}`
                     }
                 });
-            } else {
-                // Modo sincrónico original
-                const archivosPDF = req.files.filter(file => 
-                    file.mimetype === 'application/pdf'
-                );
-
-                if (archivosPDF.length === 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'No se encontraron archivos PDF'
-                    });
-                }
-
-                const resultados = await CargaMasivaService.procesarArchivosDirectos(
-                    archivosPDF,
-                    userId,
-                    { useOcr: false }
-                );
-
-                res.json({
-                    success: true,
-                    message: 'Carga masiva de archivos completada',
-                    resultados,
-                    modo: 'sincrono'
-                });
             }
+
+            // OCR OFF => sincrónico
+            const loteId = `lote_sync_${Date.now()}_${userId}`;
+
+            const resultados = await CargaMasivaService.procesarArchivosDirectos(
+                archivosPDF,
+                userId,
+                {
+                    useOcr: false,
+                    loteId,
+                    origen: 'DIRECTO',
+                    allowSinNomenclatura: false
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: 'Carga masiva de archivos completada',
+                resultados,
+                modo: 'sincrono'
+            });
 
         } catch (error) {
             console.error('Error en procesarArchivosMultiples:', error);
-            res.status(500).json({
-                success: false,
-                message: error.message
-            });
+            return res.status(500).json({ success: false, message: error.message });
         }
     }
 
@@ -212,7 +212,7 @@ class CargaMasivaController {
         }
 
     }
-        // Obtener estado de un lote OCR
+    // Obtener estado de un lote OCR
     async obtenerEstadoOCR(req, res) {
         try {
             const { loteId } = req.params;
@@ -271,6 +271,170 @@ class CargaMasivaController {
                 success: false,
                 message: error.message
             });
+        }
+    }
+    // SP-N ZIP
+    async procesarArchivoComprimidoSinNomenclatura(req, res) {
+        try {
+            if (!req.file) {
+                return res.status(400).json({ success: false, message: 'No se proporcionó archivo' });
+            }
+
+            const userId = req.user.id;
+            const extension = path.extname(req.file.originalname).toLowerCase();
+            if (!['.zip', '.rar'].includes(extension)) {
+                return res.status(400).json({ success: false, message: 'Formato de archivo no soportado. Use ZIP o RAR' });
+            }
+
+            const useOcr = req.body.useOcr === 'true';
+
+            // EXTRAER ANTES DEL IF (esto es lo que faltaba)
+            const archivos = await CargaMasivaService.extraerArchivosComprimidos(req.file.buffer, extension);
+            if (!archivos || archivos.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No se encontraron archivos PDF dentro del archivo proporcionado'
+                });
+            }
+
+            if (useOcr) {
+                const loteId = `lote_spn_zip_${Date.now()}_${userId}`;
+
+                CargaMasivaService.iniciarProcesamientoOCRAsincrono(
+                    archivos,
+                    userId,
+                    loteId,
+                    {
+                        allowSinNomenclatura: true,
+                        municipioFallbackNum: 85,
+                        modalidadFallbackNum: 1,
+                        tipoFallbackAbrev: 'SP',
+                        origen: 'COMPRIMIDO'
+                    }
+                ).catch(err => console.error('Error en procesamiento asíncrono:', err));
+
+                return res.json({
+                    success: true,
+                    message: 'Procesamiento OCR iniciado en segundo plano (sin nomenclatura)',
+                    loteId,
+                    modo: 'asincrono',
+                    endpoints: {
+                        estado: `/api/carga-masiva/estado-ocr/${loteId}`,
+                        resultados: `/api/carga-masiva/resultados-ocr/${loteId}`
+                    }
+                });
+            }
+
+            // Sincrónico (OCR OFF)
+            const loteId = `lote_sync_${Date.now()}_${userId}`;
+            const resultados = await CargaMasivaService.procesarCargaMasiva(
+                archivos,
+                userId,
+                {
+                    useOcr: false,
+                    loteId,
+                    origen: 'COMPRIMIDO',
+                    allowSinNomenclatura: true,
+                    municipioFallbackNum: 85,
+                    modalidadFallbackNum: 1,
+                    tipoFallbackAbrev: 'SP'
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: 'Carga masiva (sin nomenclatura) completada',
+                resultados,
+                modo: 'sincrono'
+            });
+
+        } catch (error) {
+            console.error('Error en procesarArchivoComprimidoSinNomenclatura:', error);
+            return res.status(500).json({ success: false, message: error.message });
+        }
+    }
+
+    // SP-N PDFs múltiples
+    async procesarArchivosMultiplesSinNomenclatura(req, res) {
+        try {
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ success: false, message: 'No se proporcionaron archivos' });
+            }
+
+            const userId = req.user.id;
+            const useOcr = req.body.useOcr === 'true';
+
+            // EXTRAER ANTES DEL IF (esto es lo que faltaba)
+            const archivosPDF = req.files.filter(file =>
+                file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')
+            );
+
+            if (archivosPDF.length === 0) {
+                return res.status(400).json({ success: false, message: 'No se encontraron archivos PDF' });
+            }
+
+            const archivosProcesados = archivosPDF.map(file => ({
+                nombre: file.originalname,
+                buffer: file.buffer,
+                tamano: file.size,
+                originalname: file.originalname  // por seguridad
+            }));
+
+            if (useOcr) {
+                const loteId = `lote_spn_directo_${Date.now()}_${userId}`;
+
+                CargaMasivaService.iniciarProcesamientoDirectoOCRAsincrono(
+                    archivosProcesados,
+                    userId,
+                    loteId,
+                    {
+                        allowSinNomenclatura: true,
+                        municipioFallbackNum: 85,
+                        modalidadFallbackNum: 1,
+                        tipoFallbackAbrev: 'SP',
+                        origen: 'DIRECTO'
+                    }
+                ).catch(err => console.error('Error en procesamiento asíncrono:', err));
+
+                return res.json({
+                    success: true,
+                    message: 'Procesamiento OCR iniciado en segundo plano (sin nomenclatura)',
+                    loteId,
+                    totalArchivos: archivosProcesados.length,
+                    modo: 'asincrono',
+                    endpoints: {
+                        estado: `/api/carga-masiva/estado-ocr/${loteId}`,
+                        resultados: `/api/carga-masiva/resultados-ocr/${loteId}`
+                    }
+                });
+            }
+
+            // Sincrónico (OCR OFF)
+            const loteId = `lote_sync_${Date.now()}_${userId}`;
+            const resultados = await CargaMasivaService.procesarCargaMasiva(
+                archivosProcesados,
+                userId,
+                {
+                    useOcr: false,
+                    loteId,
+                    origen: 'DIRECTO',
+                    allowSinNomenclatura: true,
+                    municipioFallbackNum: 85,
+                    modalidadFallbackNum: 1,
+                    tipoFallbackAbrev: 'SP'
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: 'Carga masiva (sin nomenclatura) completada',
+                resultados,
+                modo: 'sincrono'
+            });
+
+        } catch (error) {
+            console.error('Error en procesarArchivosMultiplesSinNomenclatura:', error);
+            return res.status(500).json({ success: false, message: error.message });
         }
     }
 }

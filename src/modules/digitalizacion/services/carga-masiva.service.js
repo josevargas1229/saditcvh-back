@@ -127,8 +127,11 @@ class CargaMasivaService {
             const modalidad = await this.modalidadModel.findOne({ where: { num: datosArchivo.modalidadNum } });
             if (!modalidad) throw new Error(`Modalidad con número ${datosArchivo.modalidadNum} no encontrada`);
 
-            const tipoAutorizacion = await this.tiposAutorizacionModel.findOne({ where: { abreviatura: datosArchivo.tipoAbrev } });
-            if (!tipoAutorizacion) throw new Error(`Tipo de autorización con abreviatura ${datosArchivo.tipoAbrev} no encontrado`);
+            const tipoAutorizacion = await this.tiposAutorizacionModel.findOne({
+                where: { abreviatura: datosArchivo.tipoAbrev }
+            });
+            if (!tipoAutorizacion)
+                throw new Error(`Tipo de autorización con abreviatura ${datosArchivo.tipoAbrev} no encontrado`);
 
             let autorizacion = await this.autorizacionModel.findOne({
                 where: {
@@ -143,18 +146,20 @@ class CargaMasivaService {
 
             if (!autorizacion) {
                 try {
-                    autorizacion = await this.autorizacionModel.create({
-                        numeroAutorizacion: datosArchivo.numeroAutorizacion,
-                        municipioId: municipio.id,
-                        modalidadId: modalidad.id,
-                        tipoId: tipoAutorizacion.id,
-                        consecutivo1: datosArchivo.consecutivo1,
-                        consecutivo2: datosArchivo.consecutivo2,
-                        activo: true,
-                        fechaCreacion: new Date(),
-                        fechaSolicitud: new Date()
-                    }, { transaction, returning: true });
-
+                    autorizacion = await this.autorizacionModel.create(
+                        {
+                            numeroAutorizacion: datosArchivo.numeroAutorizacion,
+                            municipioId: municipio.id,
+                            modalidadId: modalidad.id,
+                            tipoId: tipoAutorizacion.id,
+                            consecutivo1: datosArchivo.consecutivo1,
+                            consecutivo2: datosArchivo.consecutivo2,
+                            activo: true,
+                            fechaCreacion: new Date(),
+                            fechaSolicitud: new Date()
+                        },
+                        { transaction, returning: true }
+                    );
                 } catch (createError) {
                     await transaction.rollback();
 
@@ -177,7 +182,6 @@ class CargaMasivaService {
 
             if (!transaction.finished) await transaction.commit();
             return { autorizacion, municipio, modalidad, tipoAutorizacion };
-
         } catch (error) {
             await transaction.rollback();
             throw error;
@@ -209,10 +213,7 @@ class CargaMasivaService {
             if (useOcr) {
                 estadoOCR = 'procesando';
 
-                const resultadoOCR = await OCRProcessorService.procesarPDFConOCR(
-                    archivoData.buffer,
-                    archivoData.nombre
-                );
+                const resultadoOCR = await OCRProcessorService.procesarPDFConOCR(archivoData.buffer, archivoData.nombre);
 
                 if (resultadoOCR.success) {
                     bufferFinal = resultadoOCR.pdfBuffer;
@@ -220,7 +221,9 @@ class CargaMasivaService {
                     estadoOCR = 'completado';
                 } else {
                     estadoOCR = 'fallido';
-                    throw new Error(`Rechazado en validación de servidor Python: ${resultadoOCR.error || 'Falla OCR'}`);
+                    throw new Error(
+                        `Rechazado en validación de servidor Python: ${resultadoOCR.error || 'Falla OCR'}`
+                    );
                 }
             }
 
@@ -252,33 +255,39 @@ class CargaMasivaService {
                 await documentoExistente.update({ version_actual: false }, { transaction });
             }
 
-            const nuevoDocumento = await this.documentoModel.create({
-                autorizacionId: autorizacion.id,
-                titulo: `Documento de autorización ${autorizacion.numeroAutorizacion}`,
-                descripcion: `Documento cargado masivamente: ${archivoData.nombreOriginal || archivoData.nombre}`,
-                version,
-                version_actual: true,
-                documentoPadreId: documentoExistente ? documentoExistente.id : null,
-                estadoDigitalizacion: 'digitalizado',
-                paginas: this.estimarPaginas(bufferFinal),
-                creadoPor: userId
-            }, { transaction });
+            const nuevoDocumento = await this.documentoModel.create(
+                {
+                    autorizacionId: autorizacion.id,
+                    titulo: `Documento de autorización ${autorizacion.numeroAutorizacion}`,
+                    descripcion: `Documento cargado masivamente: ${archivoData.nombreOriginal || archivoData.nombre}`,
+                    version,
+                    version_actual: true,
+                    documentoPadreId: documentoExistente ? documentoExistente.id : null,
+                    estadoDigitalizacion: 'digitalizado',
+                    paginas: this.estimarPaginas(bufferFinal),
+                    creadoPor: userId
+                },
+                { transaction }
+            );
 
-            await this.archivoDigitalModel.create({
-                documento_id: nuevoDocumento.id,
-                nombre_archivo: nombreArchivo,
-                ruta_almacenamiento: path.join(estructura.rutaRelativa, nombreArchivo),
-                mime_type: 'application/pdf',
-                tamano_bytes: bufferFinal.length,
-                checksum_md5: checksumMd5,
-                checksum_sha256: checksumSha256,
-                estado_ocr: estadoOCR,
-                texto_ocr: textoOCR,
-                fecha_digitalizacion: new Date(),
-                digitalizado_por: userId,
-                version_archivo: version,
-                total_paginas: this.estimarPaginas(bufferFinal)
-            }, { transaction });
+            await this.archivoDigitalModel.create(
+                {
+                    documento_id: nuevoDocumento.id,
+                    nombre_archivo: nombreArchivo,
+                    ruta_almacenamiento: path.join(estructura.rutaRelativa, nombreArchivo),
+                    mime_type: 'application/pdf',
+                    tamano_bytes: bufferFinal.length,
+                    checksum_md5: checksumMd5,
+                    checksum_sha256: checksumSha256,
+                    estado_ocr: estadoOCR,
+                    texto_ocr: textoOCR,
+                    fecha_digitalizacion: new Date(),
+                    digitalizado_por: userId,
+                    version_archivo: version,
+                    total_paginas: this.estimarPaginas(bufferFinal)
+                },
+                { transaction }
+            );
 
             await transaction.commit();
 
@@ -292,7 +301,6 @@ class CargaMasivaService {
                 estadoOCR,
                 exito: true
             };
-
         } catch (error) {
             await transaction.rollback();
             throw error;
@@ -332,114 +340,150 @@ class CargaMasivaService {
         return matches ? matches.length : 1;
     }
 
+    // ==========================
+    // ✅ EDITADO: ahora soporta fallback sin nomenclatura
+    // ==========================
     async procesarCargaMasiva(archivos, userId, opciones = {}) {
-        const { useOcr = false, loteSize = 5, loteId = null, origen = 'DIRECTO' } = opciones;
+        const {
+            useOcr = false,
+            loteSize = 5,
+            loteId = null,
+            origen = 'DIRECTO',
+            allowSinNomenclatura = false,
+            municipioFallbackNum = 85,
+            modalidadFallbackNum = 1,
+            tipoFallbackAbrev = 'SP'
+        } = opciones;
 
-        try {
-            const resultados = {
-                total: archivos.length,
-                exitosos: 0,
-                fallidos: 0,
-                conOCR: useOcr,
-                detalles: []
-            };
+        const resultados = {
+            total: archivos.length,
+            exitosos: 0,
+            fallidos: 0,
+            conOCR: useOcr,
+            detalles: []
+        };
 
-            if (useOcr) {
-                // OCR sync (uno por uno)
-                for (const archivo of archivos) {
-                    try {
+        if (useOcr) {
+            // OCR sincrónico (uno por uno)
+            for (const archivo of archivos) {
+                try {
+                    let autorizacionInfo;
+                    const nombreOriginal = archivo?.nombreOriginal || archivo?.nombre || 'sin-nombre';
+
+                    if (!allowSinNomenclatura) {
+                        // Flujo ANTIGUO (funcionaba antes)
                         if (archivo.errorNomenclatura) {
                             throw new Error('El archivo no cumple con la nomenclatura obligatoria');
                         }
-
-                        const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
-                        const autorizacionInfo = await this.buscarOCrearAutorizacion(datosArchivo, userId);
-
-                        const resultado = await this.procesarArchivoMasivo(
-                            { ...archivo, nombreOriginal: datosArchivo.nombreOriginal },
-                            autorizacionInfo,
+                        const datosArchivo = this.parsearNombreArchivo(nombreOriginal);
+                        autorizacionInfo = await this.buscarOCrearAutorizacion(datosArchivo, userId);
+                    } else {
+                        // Flujo NUEVO con fallback
+                        autorizacionInfo = await this.resolverAutorizacionInfo(
+                            { ...archivo, nombre: nombreOriginal, nombreOriginal },
                             userId,
-                            { useOcr: true }
+                            { allowSinNomenclatura: true, municipioFallbackNum, modalidadFallbackNum, tipoFallbackAbrev }
                         );
-
-                        resultados.exitosos++;
-                        resultados.detalles.push({ archivo: archivo.nombre, exito: true, ...resultado });
-
-                    } catch (error) {
-                        resultados.fallidos++;
-                        resultados.detalles.push({ archivo: archivo.nombre, exito: false, error: error.message });
                     }
+
+                    const resultado = await this.procesarArchivoMasivo(
+                        { ...archivo, nombreOriginal },
+                        autorizacionInfo,
+                        userId,
+                        { useOcr: true }
+                    );
+
+                    resultados.exitosos++;
+                    resultados.detalles.push({ archivo: nombreOriginal, exito: true, ...resultado });
+
+                } catch (error) {
+                    resultados.fallidos++;
+                    resultados.detalles.push({
+                        archivo: archivo?.nombre || archivo?.originalname || 'desconocido',
+                        exito: false,
+                        error: error.message
+                    });
                 }
-
-                return resultados;
             }
+            return resultados;
+        }
 
-            // Normal paralelo por lotes
-            for (let i = 0; i < archivos.length; i += loteSize) {
-                const lote = archivos.slice(i, i + loteSize);
+        // Modo sin OCR - paralelo por lotes
+        for (let i = 0; i < archivos.length; i += loteSize) {
+            const lote = archivos.slice(i, i + loteSize);
 
-                const promesas = lote.map(async (archivo) => {
-                    let proceso = null;
+            const promesas = lote.map(async (archivo) => {
+                let proceso = null;
 
-                    try {
+                try {
+                    let autorizacionInfo;
+                    const nombreOriginal = archivo?.nombreOriginal || archivo?.nombre || 'sin-nombre';
+
+                    if (!allowSinNomenclatura) {
                         if (archivo.errorNomenclatura) {
                             throw new Error('El archivo no cumple con la nomenclatura obligatoria');
                         }
-
-                        const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
-                        const autorizacionInfo = await this.buscarOCrearAutorizacion(datosArchivo, userId);
-
-                        proceso = await this.ocrProcesoModel.create({
-                            lote_id: loteId || `lote_sync_${Date.now()}_${userId}`,
-                            archivo_id: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                            nombre_archivo: archivo.nombre,
-                            autorizacion_id: autorizacionInfo.autorizacion.id,
-                            user_id: userId,
-                            estado: 'procesando',
-                            tipo_proceso: 'NORMAL',
-                            origen,
-                            metadata: {
-                                useOcr,
-                                tamano: archivo.tamano
-                            }
-                        });
-
-                        const resultado = await this.procesarArchivoMasivo(
-                            { ...archivo, nombreOriginal: datosArchivo.nombreOriginal },
-                            autorizacionInfo,
-                            userId
+                        const datosArchivo = this.parsearNombreArchivo(nombreOriginal);
+                        autorizacionInfo = await this.buscarOCrearAutorizacion(datosArchivo, userId);
+                    } else {
+                        autorizacionInfo = await this.resolverAutorizacionInfo(
+                            { ...archivo, nombre: nombreOriginal, nombreOriginal },
+                            userId,
+                            { allowSinNomenclatura: true, municipioFallbackNum, modalidadFallbackNum, tipoFallbackAbrev }
                         );
-
-                        await proceso.update({
-                            estado: 'completado',
-                            documento_id: resultado.documentoId,
-                            fecha_procesado: new Date()
-                        });
-
-                        resultados.exitosos++;
-                        resultados.detalles.push({ archivo: archivo.nombre, exito: true, ...resultado });
-
-                    } catch (error) {
-                        if (proceso) {
-                            await proceso.update({ estado: 'fallado', error: error.message });
-                        }
-                        resultados.fallidos++;
-                        resultados.detalles.push({ archivo: archivo.nombre, exito: false, error: error.message });
                     }
-                });
 
-                await Promise.all(promesas);
-            }
+                    proceso = await this.ocrProcesoModel.create({
+                        lote_id: loteId || `lote_sync_${Date.now()}_${userId}`,
+                        archivo_id: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        nombre_archivo: nombreOriginal,
+                        autorizacion_id: autorizacionInfo.autorizacion.id,
+                        user_id: userId,
+                        estado: 'procesando',
+                        tipo_proceso: 'NORMAL',
+                        origen,
+                        metadata: {
+                            useOcr,
+                            tamano: archivo.tamano,
+                            fallback: !!autorizacionInfo.fallback
+                        }
+                    });
 
-            return resultados;
+                    const resultado = await this.procesarArchivoMasivo(
+                        { ...archivo, nombreOriginal },
+                        autorizacionInfo,
+                        userId,
+                        { useOcr: false }
+                    );
 
-        } catch (error) {
-            throw new Error(`Error en carga masiva: ${error.message}`);
+                    await proceso.update({
+                        estado: 'completado',
+                        documento_id: resultado.documentoId,
+                        fecha_procesado: new Date()
+                    });
+
+                    resultados.exitosos++;
+                    resultados.detalles.push({ archivo: nombreOriginal, exito: true, ...resultado });
+
+                } catch (error) {
+                    if (proceso) await proceso.update({ estado: 'fallado', error: error.message });
+                    resultados.fallidos++;
+                    resultados.detalles.push({
+                        archivo: archivo?.nombreOriginal || archivo?.nombre || 'desconocido',
+                        exito: false,
+                        error: error.message
+                    });
+                }
+            });
+
+            await Promise.all(promesas);
         }
+
+        return resultados;
     }
 
     async procesarArchivosDirectos(archivos, userId, opciones = {}) {
-        const archivosProcesados = archivos.map(archivo => ({
+        const archivosProcesados = archivos.map((archivo) => ({
             nombre: archivo.originalname,
             buffer: archivo.buffer,
             tamano: archivo.size
@@ -450,79 +494,100 @@ class CargaMasivaService {
 
     /**
      * Iniciar procesamiento OCR asíncrono (ZIP/lote)
+     * AHORA soporta fallback sin nomenclatura si allowSinNomenclatura=true
      */
-    async iniciarProcesamientoOCRAsincrono(archivos, userId, loteId) {
+    async iniciarProcesamientoOCRAsincrono(archivos, userId, loteId, opciones = {}) {
         try {
             if (!archivos || archivos.length === 0) {
                 throw new Error('No se encontraron archivos PDF para iniciar OCR');
             }
 
+            const {
+                allowSinNomenclatura = false,
+                municipioFallbackNum = 85,
+                modalidadFallbackNum = 1,
+                tipoFallbackAbrev = 'SP',
+                origen = 'DIRECTO'
+            } = opciones;
+
             const procesos = [];
 
             for (const archivo of archivos) {
                 try {
-                    if (archivo.errorNomenclatura) {
-                        throw new Error('El archivo no cumple con la nomenclatura obligatoria');
-                    }
+                    let autorizacionInfo;
+                    const nombreOriginal = archivo?.nombreOriginal || archivo?.nombre || 'sin-nombre';
 
-                    const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
-                    const autorizacionInfo = await this.buscarOCrearAutorizacionRapido(datosArchivo, userId);
+                    if (!allowSinNomenclatura) {
+                        // Flujo ANTIGUO
+                        if (archivo.errorNomenclatura) {
+                            throw new Error('El archivo no cumple con la nomenclatura obligatoria');
+                        }
+                        const datosArchivo = this.parsearNombreArchivo(nombreOriginal);
+                        autorizacionInfo = await this.buscarOCrearAutorizacionRapido(datosArchivo, userId);
+                    } else {
+                        autorizacionInfo = await this.resolverAutorizacionInfo(
+                            { ...archivo, nombre: nombreOriginal, nombreOriginal },
+                            userId,
+                            { allowSinNomenclatura: true, municipioFallbackNum, modalidadFallbackNum, tipoFallbackAbrev }
+                        );
+                    }
 
                     const proceso = await this.ocrProcesoModel.create({
                         lote_id: loteId,
                         archivo_id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                        nombre_archivo: archivo.nombre,
+                        nombre_archivo: nombreOriginal,
                         autorizacion_id: autorizacionInfo.autorizacion.id,
                         user_id: userId,
                         estado: 'pendiente',
                         intentos: 0,
+                        tipo_proceso: 'OCR',
+                        origen,
                         metadata: {
-                            datosArchivo,
+                            datosArchivo: autorizacionInfo.datosArchivo || null,
                             tamano: archivo.tamano,
-                            rutaRelativa: archivo.rutaRelativa
+                            rutaRelativa: archivo.rutaRelativa,
+                            fallback: !!autorizacionInfo.fallback
                         }
                     });
 
                     procesos.push(proceso);
 
-                    // Disparar async
-                    this.enviarArchivoParaOCR(archivo, proceso, autorizacionInfo, userId)
-                        .catch(err => console.error(`Error procesando ${archivo.nombre}:`, err));
+                    this.enviarArchivoParaOCR(
+                        { ...archivo, nombre: nombreOriginal, nombreOriginal },
+                        proceso,
+                        autorizacionInfo,
+                        userId
+                    ).catch(err => console.error(`Error procesando ${nombreOriginal}:`, err));
 
                 } catch (error) {
-                    console.error(`Error procesando [${archivo.nombre}]:`, error.message);
+                    console.error(`Error procesando [${archivo?.nombreOriginal || archivo?.nombre}]:`, error.message);
 
-                    if (error.message.includes('nomenclatura obligatoria')) {
-                        console.warn(`[OMITIDO] Archivo inválido extraído del ZIP: ${archivo.nombre}`);
-                    } else {
-                        // Registrar fallo si tu tabla lo permite sin autorizacion_id
-                        try {
-                            await this.ocrProcesoModel.create({
-                                lote_id: loteId,
-                                archivo_id: `temp_${Date.now()}_err`,
-                                nombre_archivo: archivo.nombre,
-                                autorizacion_id: null,
-                                user_id: userId,
-                                estado: 'fallado',
-                                error: error.message,
-                                intentos: 1,
-                                metadata: { error: true }
-                            });
-                        } catch (bdError) {
-                            console.error('No se pudo registrar el fallo en BD:', bdError.message);
-                        }
+                    try {
+                        await this.ocrProcesoModel.create({
+                            lote_id: loteId,
+                            archivo_id: `temp_${Date.now()}_err`,
+                            nombre_archivo: archivo?.nombreOriginal || archivo?.nombre || 'sin-nombre',
+                            autorizacion_id: null,
+                            user_id: userId,
+                            estado: 'fallado',
+                            error: error.message,
+                            intentos: 1,
+                            tipo_proceso: 'OCR',
+                            origen,
+                            metadata: { error: true }
+                        });
+                    } catch (bdError) {
+                        console.error('No se pudo registrar el fallo en BD:', bdError.message);
                     }
                 }
             }
 
             return { loteId, total: archivos.length, procesos: procesos.length };
-
         } catch (error) {
             console.error('Error iniciando procesamiento asíncrono:', error);
             throw error;
         }
     }
-
     async buscarOCrearAutorizacionRapido(datosArchivo, userId) {
         try {
             const municipio = await this.municipioModel.findOne({
@@ -588,7 +653,7 @@ class CargaMasivaService {
 
             return { autorizacion, municipio, modalidad, tipoAutorizacion };
         } catch (error) {
-            console.error("Error en buscarOCrearAutorizacionRapido:", error);
+            console.error('Error en buscarOCrearAutorizacionRapido:', error);
             throw error;
         }
     }
@@ -606,10 +671,7 @@ class CargaMasivaService {
                 intentos: intentosActuales
             });
 
-            const envio = await OCRProcessorService.enviarPDFParaOCR(
-                archivoData.buffer,
-                archivoData.nombre
-            );
+            const envio = await OCRProcessorService.enviarPDFParaOCR(archivoData.buffer, archivoData.nombre);
 
             if (!envio.success) {
                 throw new Error(`Error enviando a Python: ${envio.error}`);
@@ -619,17 +681,17 @@ class CargaMasivaService {
             await proceso.update({
                 metadata: {
                     ...(proceso.metadata || {}),
-                    taskId: envio.taskId || "",
+                    taskId: envio.taskId || '',
                     pythonPdfId: envio.pythonPdfId
                 }
             });
 
             // Monitoreo (poll por upload-status/{pythonPdfId})
-            this.monitorearProcesoOCR(proceso, autorizacionInfo, userId, archivoData)
-                .catch(err => console.error('Error monitoreando OCR:', err));
+            this.monitorearProcesoOCR(proceso, autorizacionInfo, userId, archivoData).catch((err) =>
+                console.error('Error monitoreando OCR:', err)
+            );
 
             return { success: true, pythonPdfId: envio.pythonPdfId, taskId: envio.taskId };
-
         } catch (error) {
             // Reintentos controlados
             const maxIntentos = Number(proceso.max_intentos || proceso.maxIntentos || 3);
@@ -658,7 +720,6 @@ class CargaMasivaService {
 
                 const pythonPdfId = proceso.metadata?.pythonPdfId;
                 if (!pythonPdfId) {
-                    // Si por timing aún no se guardó, esperar
                     if (intentos >= maxIntentosPolling) {
                         clearInterval(intervalo);
                         await proceso.update({ estado: 'fallado', error: 'pythonPdfId no disponible para monitoreo' });
@@ -703,12 +764,10 @@ class CargaMasivaService {
                     // Reintentar envío si todavía puede
                     if (intentosEnvio < maxIntentos) {
                         setTimeout(() => {
-                            this.enviarArchivoParaOCR(archivoData, proceso, autorizacionInfo, userId)
-                                .catch(console.error);
+                            this.enviarArchivoParaOCR(archivoData, proceso, autorizacionInfo, userId).catch(console.error);
                         }, 30000);
                     }
                 }
-
             } catch (error) {
                 console.error(`Error monitoreando ${proceso.nombre_archivo}:`, error);
 
@@ -729,13 +788,11 @@ class CargaMasivaService {
             const pythonPdfId = estado.pythonPdfId || proceso.metadata?.pythonPdfId;
             if (!pythonPdfId) throw new Error('pythonPdfId no disponible en el estado');
 
-            // Descargar resultados ANTES de transacción
             const [pdfResult, textResult] = await Promise.all([
                 OCRProcessorService.descargarPDFConOCR(pythonPdfId),
                 OCRProcessorService.descargarTextoOCR(pythonPdfId)
             ]);
 
-            // Si no están listos (202/404), reprogramar verificación
             if (!pdfResult.success || !textResult.success) {
                 const sc1 = pdfResult.statusCode;
                 const sc2 = textResult.statusCode;
@@ -748,7 +805,6 @@ class CargaMasivaService {
                 throw new Error(`Error descargando resultados: ${pdfResult.error || textResult.error}`);
             }
 
-            // Si text viene como objeto pending (por tu backend)
             if (textResult?.text && typeof textResult.text === 'object' && textResult.text.status === 'pending') {
                 this.reprogramarVerificacion(proceso, autorizacionInfo, userId, archivoData);
                 return { success: false, retry: true };
@@ -764,7 +820,10 @@ class CargaMasivaService {
 
                 const estructura = this.construirEstructuraCarpetasNumericos({
                     municipio: { id: autorizacionInfo.municipio.num },
-                    tipoAutorizacion: { id: autorizacionInfo.tipoAutorizacion.id, abreviatura: autorizacionInfo.tipoAutorizacion.abreviatura },
+                    tipoAutorizacion: {
+                        id: autorizacionInfo.tipoAutorizacion.id,
+                        abreviatura: autorizacionInfo.tipoAutorizacion.abreviatura
+                    },
                     numero: autorizacionInfo.autorizacion.numeroAutorizacion,
                     consecutivo: autorizacionInfo.autorizacion.consecutivo1,
                     nombreCarpeta: autorizacionInfo.autorizacion.nombreCarpeta
@@ -789,55 +848,61 @@ class CargaMasivaService {
                     await documentoExistente.update({ version_actual: false }, { transaction });
                 }
 
-                const nuevoDocumento = await this.documentoModel.create({
-                    autorizacionId: autorizacionInfo.autorizacion.id,
-                    titulo: `Documento con OCR ${autorizacionInfo.autorizacion.numeroAutorizacion}`,
-                    descripcion: `Documento procesado con OCR: ${archivoData.nombre}`,
-                    version,
-                    version_actual: true,
-                    documentoPadreId: documentoExistente ? documentoExistente.id : null,
-                    estadoDigitalizacion: 'digitalizado',
-                    paginas: this.estimarPaginas(pdfResult.pdfBuffer),
-                    creadoPor: userId
-                }, { transaction });
+                const nuevoDocumento = await this.documentoModel.create(
+                    {
+                        autorizacionId: autorizacionInfo.autorizacion.id,
+                        titulo: `Documento con OCR ${autorizacionInfo.autorizacion.numeroAutorizacion}`,
+                        descripcion: `Documento procesado con OCR: ${archivoData.nombre}`,
+                        version,
+                        version_actual: true,
+                        documentoPadreId: documentoExistente ? documentoExistente.id : null,
+                        estadoDigitalizacion: 'digitalizado',
+                        paginas: this.estimarPaginas(pdfResult.pdfBuffer),
+                        creadoPor: userId
+                    },
+                    { transaction }
+                );
 
-                await this.archivoDigitalModel.create({
-                    documento_id: nuevoDocumento.id,
-                    nombre_archivo: nombreArchivo,
-                    ruta_almacenamiento: path.join(estructura.rutaRelativa, nombreArchivo),
-                    mime_type: 'application/pdf',
-                    tamano_bytes: pdfResult.pdfBuffer.length,
-                    checksum_md5: checksumMd5,
-                    checksum_sha256: checksumSha256,
-                    estado_ocr: 'completado',
-                    texto_ocr: textResult.text,
-                    fecha_digitalizacion: new Date(),
-                    digitalizado_por: userId,
-                    version_archivo: version,
-                    total_paginas: this.estimarPaginas(pdfResult.pdfBuffer)
-                }, { transaction });
+                await this.archivoDigitalModel.create(
+                    {
+                        documento_id: nuevoDocumento.id,
+                        nombre_archivo: nombreArchivo,
+                        ruta_almacenamiento: path.join(estructura.rutaRelativa, nombreArchivo),
+                        mime_type: 'application/pdf',
+                        tamano_bytes: pdfResult.pdfBuffer.length,
+                        checksum_md5: checksumMd5,
+                        checksum_sha256: checksumSha256,
+                        estado_ocr: 'completado',
+                        texto_ocr: textResult.text,
+                        fecha_digitalizacion: new Date(),
+                        digitalizado_por: userId,
+                        version_archivo: version,
+                        total_paginas: this.estimarPaginas(pdfResult.pdfBuffer)
+                    },
+                    { transaction }
+                );
 
-                // Actualizar proceso
-                await proceso.update({
-                    estado: 'completado',
-                    documento_id: nuevoDocumento.id,
-                    fecha_procesado: new Date(),
-                    metadata: {
-                        ...(proceso.metadata || {}),
-                        documentoId: nuevoDocumento.id,
-                        rutaArchivo,
-                        pythonPdfId
-                    }
-                }, { transaction });
+                await proceso.update(
+                    {
+                        estado: 'completado',
+                        documento_id: nuevoDocumento.id,
+                        fecha_procesado: new Date(),
+                        metadata: {
+                            ...(proceso.metadata || {}),
+                            documentoId: nuevoDocumento.id,
+                            rutaArchivo,
+                            pythonPdfId
+                        }
+                    },
+                    { transaction }
+                );
 
                 await transaction.commit();
                 return { success: true, documentoId: nuevoDocumento.id };
-
             } catch (error) {
                 await transaction.rollback();
                 throw error;
             }
-
         } catch (error) {
             await proceso.update({
                 estado: 'fallado',
@@ -848,10 +913,6 @@ class CargaMasivaService {
         }
     }
 
-    /**
-     * Reprogramar verificación (para cuando PDF/text aún no estén listos)
-     * SIN /list.
-     */
     reprogramarVerificacion(proceso, autorizacionInfo, userId, archivoData) {
         setTimeout(async () => {
             try {
@@ -875,10 +936,6 @@ class CargaMasivaService {
         }, 10000);
     }
 
-    /**
-     * Reconciliar procesos pendientes/procesando al listar (por si el worker se cayó)
-     * SIN /list: verifica cada proceso con /upload-status/{pythonPdfId}
-     */
     async reconciliarProcesosOCRPendientes(userId) {
         const pendientes = await this.ocrProcesoModel.findAll({
             where: {
@@ -929,9 +986,6 @@ class CargaMasivaService {
         return { autorizacion, municipio, tipoAutorizacion };
     }
 
-    /**
-     * Estado de lote OCR
-     */
     async obtenerEstadoLoteOCR(loteId, userId) {
         const procesos = await this.ocrProcesoModel.findAll({
             where: { lote_id: loteId, user_id: userId },
@@ -950,15 +1004,10 @@ class CargaMasivaService {
             pendiente: conteo.pendiente || 0,
             procesando: conteo.procesando || 0,
             fallado: conteo.fallado || 0,
-            porcentaje: procesos.length > 0
-                ? Math.round(((conteo.completado || 0) / procesos.length) * 100)
-                : 0
+            porcentaje: procesos.length > 0 ? Math.round(((conteo.completado || 0) / procesos.length) * 100) : 0
         };
     }
 
-    /**
-     * Resultados lote OCR
-     */
     async obtenerResultadosLoteOCR(loteId, userId) {
         const procesos = await this.ocrProcesoModel.findAll({
             where: { lote_id: loteId, user_id: userId },
@@ -969,7 +1018,7 @@ class CargaMasivaService {
             order: [['created_at', 'DESC']]
         });
 
-        const resultados = procesos.map(p => ({
+        const resultados = procesos.map((p) => ({
             nombreArchivo: p.nombre_archivo,
             estado: p.estado,
             error: p.error,
@@ -995,14 +1044,9 @@ class CargaMasivaService {
         };
     }
 
-    /**
-     * Listar lotes por usuario
-     * SIN /list: el porcentaje se calcula con BD
-     */
     async listarLotesPorUsuario(userId, limit = 20, offset = 0) {
         const { fn, col, literal } = this.ocrProcesoModel.sequelize;
 
-        // intenta completar procesos colgados antes de listar
         await this.reconciliarProcesosOCRPendientes(userId);
 
         const lotes = await this.ocrProcesoModel.findAll({
@@ -1016,10 +1060,7 @@ class CargaMasivaService {
                 [fn('SUM', literal(`CASE WHEN estado = 'completado' THEN 1 ELSE 0 END`)), 'completados'],
                 [fn('SUM', literal(`CASE WHEN estado = 'fallado' THEN 1 ELSE 0 END`)), 'fallados'],
 
-                [
-                    fn('ARRAY_AGG', literal(`CASE WHEN estado = 'fallado' THEN error ELSE NULL END`)),
-                    'errores'
-                ],
+                [fn('ARRAY_AGG', literal(`CASE WHEN estado = 'fallado' THEN error ELSE NULL END`)), 'errores'],
 
                 [
                     fn(
@@ -1049,24 +1090,20 @@ class CargaMasivaService {
             raw: true
         });
 
-        return lotes.map(lote => {
+        return lotes.map((lote) => {
             const total = Number(lote.totalArchivos || 0);
             const completados = Number(lote.completados || 0);
             const fallados = Number(lote.fallados || 0);
-
             const porcentaje = total > 0 ? Math.round((completados / total) * 100) : 0;
 
             return {
                 loteId: lote.loteId,
                 tipoProceso: lote.tipoProceso,
                 origen: lote.origen,
-
                 totalArchivos: total,
                 completados,
                 fallados,
-
                 porcentaje,
-
                 errores: (lote.errores || []).filter(Boolean),
                 archivosProcesados: (lote.archivosProcesados || []).filter(Boolean),
                 ultimoProceso: lote.ultimoProceso
@@ -1074,65 +1111,193 @@ class CargaMasivaService {
         });
     }
 
-    /**
-     * Procesamiento directo OCR asíncrono
-     */
-    async iniciarProcesamientoDirectoOCRAsincrono(archivos, userId, loteId) {
+    async iniciarProcesamientoDirectoOCRAsincrono(archivos, userId, loteId, opciones = {}) {
         try {
+            const {
+                allowSinNomenclatura = false,
+                municipioFallbackNum = 85,
+                modalidadFallbackNum = 1,
+                tipoFallbackAbrev = 'SP',
+                origen = 'DIRECTO'
+            } = opciones;
+
             const procesos = [];
 
             for (const archivo of archivos) {
-                let autorizacionInfo = null;
-
                 try {
-                    const datosArchivo = this.parsearNombreArchivo(archivo.originalname);
-                    autorizacionInfo = await this.buscarOCrearAutorizacionRapido(datosArchivo, userId);
+                    let autorizacionInfo;
+                    const nombreOriginal = archivo.originalname || 'sin-nombre';
+
+                    if (!allowSinNomenclatura) {
+                        const datosArchivo = this.parsearNombreArchivo(nombreOriginal);
+                        autorizacionInfo = await this.buscarOCrearAutorizacionRapido(datosArchivo, userId);
+                    } else {
+                        autorizacionInfo = await this.resolverAutorizacionInfo(
+                            { nombre: nombreOriginal, nombreOriginal },
+                            userId,
+                            { allowSinNomenclatura: true, municipioFallbackNum, modalidadFallbackNum, tipoFallbackAbrev }
+                        );
+                    }
 
                     const proceso = await this.ocrProcesoModel.create({
                         lote_id: loteId,
                         archivo_id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                        nombre_archivo: archivo.originalname,
+                        nombre_archivo: nombreOriginal,
                         autorizacion_id: autorizacionInfo.autorizacion.id,
                         user_id: userId,
                         estado: 'pendiente',
                         intentos: 0,
+                        tipo_proceso: 'OCR',
+                        origen,
                         metadata: {
-                            datosArchivo,
-                            tamano: archivo.size
+                            datosArchivo: autorizacionInfo.datosArchivo || null,
+                            tamano: archivo.size,
+                            fallback: !!autorizacionInfo.fallback
                         }
                     });
 
                     procesos.push(proceso);
 
                     this.enviarArchivoParaOCR(
-                        { buffer: archivo.buffer, nombre: archivo.originalname, tamano: archivo.size },
+                        { buffer: archivo.buffer, nombre: nombreOriginal, nombreOriginal, tamano: archivo.size },
                         proceso,
                         autorizacionInfo,
                         userId
-                    ).catch(err => console.error(`Error procesando ${archivo.originalname}:`, err));
+                    ).catch(err => console.error(`Error procesando ${nombreOriginal}:`, err));
 
                 } catch (error) {
                     console.error(`Error preparando ${archivo.originalname}:`, error);
 
-                    await this.ocrProcesoModel.create({
-                        lote_id: loteId,
-                        archivo_id: `error_${Date.now()}`,
-                        nombre_archivo: archivo.originalname,
-                        autorizacion_id: autorizacionInfo?.autorizacion?.id ?? null,
-                        user_id: userId,
-                        estado: 'fallado',
-                        error: error.message,
-                        intentos: 1,
-                        metadata: { error: true }
-                    });
+                    try {
+                        await this.ocrProcesoModel.create({
+                            lote_id: loteId,
+                            archivo_id: `error_${Date.now()}`,
+                            nombre_archivo: archivo.originalname || 'sin-nombre',
+                            autorizacion_id: null,
+                            user_id: userId,
+                            estado: 'fallado',
+                            error: error.message,
+                            intentos: 1,
+                            tipo_proceso: 'OCR',
+                            origen,
+                            metadata: { error: true }
+                        });
+                    } catch (bdError) {
+                        console.error('No se pudo registrar el fallo en BD:', bdError.message);
+                    }
                 }
             }
 
             return { loteId, total: archivos.length, procesos: procesos.length };
-
         } catch (error) {
             console.error('Error iniciando procesamiento directo asíncrono:', error);
             throw error;
+        }
+    }
+    // ==========================================================
+    // ✅ NUEVO: soporte "sin nomenclatura" (fallback SP-N)
+    // ==========================================================
+
+    async obtenerSiguienteNumeroAutorizacionSP(tipoAbrev = 'SP') {
+        const prefix = `${tipoAbrev}-`;
+
+        // OJO: si no tienes created_at, usa id DESC (más seguro)
+        const ultima = await this.autorizacionModel.findOne({
+            where: { numeroAutorizacion: { [Op.like]: `${prefix}%` } },
+            attributes: ['numeroAutorizacion'],
+            order: [['id', 'DESC']]
+        });
+
+        if (!ultima?.numeroAutorizacion) return `${tipoAbrev}-1`;
+
+        const m = String(ultima.numeroAutorizacion).match(new RegExp(`^${tipoAbrev}-(\\d+)$`, 'i'));
+        const n = m ? parseInt(m[1], 10) : 0;
+        return `${tipoAbrev}-${n + 1}`;
+    }
+
+    async crearAutorizacionFallbackSinNomenclatura(
+        userId,
+        { municipioNum = 85, modalidadNum = 1, tipoAbrev = 'SP' } = {}
+    ) {
+        const municipio = await this.municipioModel.findOne({ where: { num: municipioNum } });
+        if (!municipio) throw new Error(`Municipio fallback ${municipioNum} no encontrado`);
+
+        const modalidad = await this.modalidadModel.findOne({ where: { num: modalidadNum } });
+        if (!modalidad) throw new Error(`Modalidad fallback ${modalidadNum} no encontrada`);
+
+        const tipoAutorizacion = await this.tiposAutorizacionModel.findOne({ where: { abreviatura: tipoAbrev } });
+        if (!tipoAutorizacion) throw new Error(`Tipo fallback ${tipoAbrev} no encontrado`);
+
+        for (let intentos = 0; intentos < 20; intentos++) {
+            const numeroAutorizacion = await this.obtenerSiguienteNumeroAutorizacionSP(tipoAbrev);
+
+            try {
+                const autorizacion = await this.autorizacionModel.create(
+                    {
+                        numeroAutorizacion,
+                        municipioId: municipio.id,
+                        modalidadId: modalidad.id,
+                        tipoId: tipoAutorizacion.id,
+                        consecutivo1: '0000',
+                        consecutivo2: '0000',
+                        activo: true,
+                        fechaCreacion: new Date(),
+                        fechaSolicitud: new Date()
+                    },
+                    { returning: true }
+                );
+
+                return { autorizacion, municipio, modalidad, tipoAutorizacion, fallback: true };
+            } catch (err) {
+                if (err?.name === 'SequelizeUniqueConstraintError') continue;
+                throw err;
+            }
+        }
+
+        throw new Error('No se pudo generar numeroAutorizacion fallback (SP-N) después de varios intentos');
+    }
+
+    /**
+     * Resolver autorización usando:
+     * - normal: parsearNombreArchivo + buscarOCrearAutorizacion
+     * - fallback: si falla parse y allowSinNomenclatura=true => crearAutorizacionFallbackSinNomenclatura
+     */
+    async resolverAutorizacionInfo(archivo, userId, opciones = {}) {
+        const allowSinNomenclatura = !!opciones.allowSinNomenclatura;
+
+        const municipioFallbackNum = opciones.municipioFallbackNum ?? 85;
+        const modalidadFallbackNum = opciones.modalidadFallbackNum ?? 1;
+        const tipoFallbackAbrev = opciones.tipoFallbackAbrev ?? 'SP';
+
+        const nombreOriginalSeguro = archivo?.nombreOriginal || archivo?.nombre;
+
+        try {
+            const datosArchivo = this.parsearNombreArchivo(nombreOriginalSeguro);
+            const autorizacionInfo = await this.buscarOCrearAutorizacion(datosArchivo, userId);
+
+            return {
+                ...autorizacionInfo,
+                datosArchivo,
+                nombreOriginal: datosArchivo.nombreOriginal || nombreOriginalSeguro,
+                fallback: false
+            };
+        } catch (errorParse) {
+            if (!allowSinNomenclatura) {
+                throw new Error('El archivo no cumple con la nomenclatura obligatoria');
+            }
+
+            const fallbackInfo = await this.crearAutorizacionFallbackSinNomenclatura(userId, {
+                municipioNum: municipioFallbackNum,
+                modalidadNum: modalidadFallbackNum,
+                tipoAbrev: tipoFallbackAbrev
+            });
+
+            return {
+                ...fallbackInfo,
+                datosArchivo: null,
+                nombreOriginal: nombreOriginalSeguro,
+                fallback: true
+            };
         }
     }
 }
