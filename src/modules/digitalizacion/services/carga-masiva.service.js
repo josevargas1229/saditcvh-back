@@ -578,7 +578,12 @@ class CargaMasivaService {
         // Procesar uno por uno para no saturar Python
         for (const archivo of archivos) {
           try {
-            const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
+            const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+              allowSinNomenclatura: opciones.allowSinNomenclatura || false,
+              municipioFallbackNum: opciones.municipioFallbackNum,
+              modalidadFallbackNum: opciones.modalidadFallbackNum,
+              tipoFallbackAbrev: opciones.tipoFallbackAbrev,
+            });
             const autorizacionInfo = await this.buscarOCrearAutorizacion(
               datosArchivo,
               userId,
@@ -615,7 +620,12 @@ class CargaMasivaService {
 
             try {
               // Parsear nombre del archivo
-              const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
+              const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+                allowSinNomenclatura: opciones.allowSinNomenclatura || false,
+                municipioFallbackNum: opciones.municipioFallbackNum,
+                modalidadFallbackNum: opciones.modalidadFallbackNum,
+                tipoFallbackAbrev: opciones.tipoFallbackAbrev,
+              });
 
               // Buscar o crear autorización
               const autorizacionInfo = await this.buscarOCrearAutorizacion(
@@ -719,10 +729,12 @@ class CargaMasivaService {
   ) {
     try {
       // Extraer archivos del comprimido
-      const archivos = await this.extraerArchivosComprimidos(
-        archivoBuffer,
-        extension,
-      );
+      const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+        allowSinNomenclatura: opciones?.allowSinNomenclatura || false,
+        municipioFallbackNum: opciones?.municipioFallbackNum,
+        modalidadFallbackNum: opciones?.modalidadFallbackNum,
+        tipoFallbackAbrev: opciones?.tipoFallbackAbrev
+      });
 
       if (archivos.length === 0) {
         throw new Error("No se encontraron archivos PDF en el comprimido");
@@ -733,9 +745,11 @@ class CargaMasivaService {
 
       for (const archivo of archivos) {
         try {
-          // Parsear nombre para obtener datos de autorización
-          const datosArchivo = this.parsearNombreArchivo(archivo.nombre);
 
+          const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+            allowSinNomenclatura: false, // Para ZIP normal asumimos modo estricto
+            // Si más adelante quieres ZIP sin nomenclatura, pasa la opción desde el controller
+          });
           // Buscar o crear autorización (sin transacción larga)
           const autorizacionInfo = await this.buscarOCrearAutorizacionRapido(
             datosArchivo,
@@ -1399,9 +1413,9 @@ class CargaMasivaService {
       const progresoPromedio =
         totalConocidosParaProgreso > 0
           ? Math.round(
-              (numCompleted * 100 + sumProgressEnCurso) /
-                (numCompleted + todosProcesos.length),
-            )
+            (numCompleted * 100 + sumProgressEnCurso) /
+            (numCompleted + todosProcesos.length),
+          )
           : 0;
 
       const paginasTotales = todosProcesos.reduce(
@@ -1522,8 +1536,12 @@ class CargaMasivaService {
         let autorizacionInfo = null;
 
         try {
-          const datosArchivo = this.parsearNombreArchivo(archivo.originalname);
-
+          const datosArchivo = this.obtenerDatosArchivo(archivo.originalname, {
+            allowSinNomenclatura: true,  // porque este método se llama SOLO desde el flujo sin-nomenclatura
+            municipioFallbackNum: 85,
+            modalidadFallbackNum: 1,
+            tipoFallbackAbrev: 'SP'
+          });
           autorizacionInfo = await this.buscarOCrearAutorizacionRapido(
             datosArchivo,
             userId,
@@ -1701,6 +1719,41 @@ class CargaMasivaService {
       municipio,
       tipoAutorizacion,
     };
+  }
+  /**
+ * Obtiene datos de autorización: intenta parsear el nombre,
+ * si falla y allowSinNomenclatura=true → usa fallback
+ */
+  obtenerDatosArchivo(nombreArchivo, opciones = {}) {
+    const {
+      allowSinNomenclatura = false,
+      municipioFallbackNum = 85,
+      modalidadFallbackNum = 1,
+      tipoFallbackAbrev = 'SP',
+    } = opciones;
+
+    try {
+      // Intentamos parsear siempre (prioridad a datos reales)
+      return this.parsearNombreArchivo(nombreArchivo);
+    } catch (err) {
+      if (!allowSinNomenclatura) {
+        // Modo estricto → propagamos el error
+        throw err;
+      }
+
+      // Modo sin nomenclatura → fallback silencioso
+      console.warn(`[SIN NOMENCLATURA] Nombre inválido (${nombreArchivo}) → usando fallback SP-85-01`);
+
+      return {
+        numeroAutorizacion: `SP-${Date.now()}`,
+        municipioNum: municipioFallbackNum,
+        modalidadNum: modalidadFallbackNum,
+        tipoAbrev: tipoFallbackAbrev,
+        consecutivo1: '00',
+        consecutivo2: '000',
+        nombreOriginal: nombreArchivo,
+      };
+    }
   }
 }
 
