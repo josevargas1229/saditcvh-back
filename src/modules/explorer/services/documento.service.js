@@ -561,7 +561,8 @@ class DocumentoService {
         }
       }
 
-      // 5. Borrar la version
+      // 5. Borrar la version lógica y marcarla como inactiva explícitamente
+      await versionEliminar.update({ version_actual: false }, { transaction });
       await versionEliminar.destroy({ transaction });
 
       await transaction.commit();
