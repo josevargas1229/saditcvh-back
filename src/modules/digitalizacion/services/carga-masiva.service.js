@@ -325,8 +325,8 @@ class CargaMasivaService {
 
       // Después de escribir el archivo en disco
       const pdfIdFinal = nombreArchivo.replace(/\.pdf$/i, '');
-      console.log(`[NOTIF_SINCRONO] Actualizando ruta en Python: ${pdfIdFinal} → ${rutaArchivo}`);
-
+      const baseId = (autorizacion.nombreCarpeta || '').trim();
+      console.log(`[NOTIF_SINCRONO] baseId=${baseId} | pdfIdFinal=${pdfIdFinal} → ${rutaArchivo}`);
 
 
       // Calcular checksums del archivo final
@@ -394,8 +394,8 @@ class CargaMasivaService {
       // }
 
       await transaction.commit();
-      await OCRProcessorService.actualizarRutaFinal(pdfIdFinal, rutaArchivo).catch(err => {
-        console.error(`[ERROR_NOTIF_SINCRONO] Falló para ${pdfIdFinal}:`, err);
+      await OCRProcessorService.actualizarRutaFinal(baseId, rutaArchivo).catch(err => {
+        console.error(`[ERROR_NOTIF_SINCRONO] Falló para ${baseId}:`, err);
       });
       return {
         autorizacionId: autorizacion.id,
@@ -1245,15 +1245,16 @@ class CargaMasivaService {
         // ¡ESTO ES LO QUE FALTABA! Notificar el nombre FINAL
         // ────────────────────────────────────────────────
         const pdfIdFinal = nombreArchivo.replace(/\.pdf$/i, '');
+        const baseId = (autorizacionInfo.autorizacion.nombreCarpeta || '').trim();
 
         console.log(
-          `[NOTIFICAR_PYTHON_FINAL] pdf_id versionado: ${pdfIdFinal} → ${rutaArchivo}`
+          `[NOTIFICAR_PYTHON_FINAL] baseId=${baseId} | pdfIdFinal=${pdfIdFinal} → ${rutaArchivo}`
         );
 
-        await OCRProcessorService.actualizarRutaFinal(pythonPdfId, rutaArchivo).catch(err => {
-            console.warn(`[WARN_COMPAT] ${pythonPdfId}:`, err);
-          });
-          
+        await OCRProcessorService.actualizarRutaFinal(baseId, rutaArchivo).catch(err => {
+          console.warn(`[WARN_COMPAT] ${baseId}:`, err);
+        });
+
         const checksumMd5 = crypto.createHash("md5").update(pdfResult.pdfBuffer).digest("hex");
         const checksumSha256 = crypto.createHash("sha256").update(pdfResult.pdfBuffer).digest("hex");
 
