@@ -296,7 +296,7 @@ class CargaMasivaService {
       });
 
       // Crear estructura de carpetas
-      const estructura = this.construirEstructuraCarpetasNumericos({
+      const estructura = await this.construirEstructuraCarpetasNumericos({
         municipio: { id: municipio.num },
         tipoAutorizacion: {
           id: tipoAutorizacion.id,
@@ -448,24 +448,23 @@ class CargaMasivaService {
 
   async generarNombreArchivoMasivo(autorizacion, nombreOriginal, version) {
     const extension = path.extname(nombreOriginal);
-    const timestamp = Date.now();
 
-    // Detectar modo sin nomenclatura
+    // Detectar si es modo sin nomenclatura (fallback P-...)
     const esSinNomenclatura = autorizacion.numeroAutorizacion?.startsWith('P-') ||
       autorizacion.nombreCarpeta?.startsWith('P_');
 
     if (esSinNomenclatura) {
-      // Limpiar nombre original
+      // Limpiar nombre original para que sea seguro en disco
       let baseName = path.basename(nombreOriginal, '.pdf')
-        .replace(/[^a-zA-Z0-9-_áéíóúÁÉÍÓÚñÑ ]/g, '_')
-        .replace(/\s+/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^_+|_+$/g, '');
+        .replace(/[^a-zA-Z0-9-_áéíóúÁÉÍÓÚñÑ\s]/g, '_')   // permitir acentos, ñ, espacios
+        .replace(/\s+/g, '_')                              // espacios → _
+        .replace(/_+/g, '_')                               // evitar múltiples _
+        .replace(/^_+|_+$/g, '');                          // quitar _ sobrantes
 
       if (!baseName) baseName = 'archivo_subido';
 
-      // Construir estructura de carpetas (ya la tienes)
-      const estructura = this.construirEstructuraCarpetasNumericos({
+      // Obtener ruta completa de la carpeta destino
+      const estructura = await this.construirEstructuraCarpetasNumericos({
         municipio: { id: autorizacion.municipio?.num || 85 },
         tipoAutorizacion: {
           id: autorizacion.tipoAutorizacion?.id || 1,
@@ -476,13 +475,14 @@ class CargaMasivaService {
         nombreCarpeta: autorizacion.nombreCarpeta,
       });
 
-      const rutaCompleta = estructura.rutaCompleta; // ej: /storage/85/P/... 
+      const rutaCompleta = estructura.rutaCompleta;
 
-      // Verificar si ya existe y agregar (1), (2), etc.
+      // Empezar con nombre original
       let nombreFinal = `${baseName}${extension}`;
       let contador = 1;
       let rutaCandidata = path.join(rutaCompleta, nombreFinal);
 
+      // Si ya existe → agregar (1), (2), etc.
       while (await this.existeArchivo(rutaCandidata)) {
         nombreFinal = `${baseName} (${contador})${extension}`;
         rutaCandidata = path.join(rutaCompleta, nombreFinal);
@@ -492,7 +492,7 @@ class CargaMasivaService {
       return nombreFinal;
     }
 
-    // Modo normal (con nomenclatura) → mantener original
+    // Modo con nomenclatura → mantener como siempre (prefijo + v + timestamp)
     let nombreBase = "auth_desconocido";
     if (autorizacion.nombreCarpeta) {
       nombreBase = autorizacion.nombreCarpeta.replace(/[\s-]/g, "_");
@@ -500,10 +500,11 @@ class CargaMasivaService {
       nombreBase = `auth_${autorizacion.id || "err"}`;
     }
 
+    const timestamp = Date.now();
     return `${nombreBase}_v${version}_${timestamp}${extension}`;
   }
 
-  // Helper nuevo: verificar si el archivo ya existe en disco
+  // Asegúrate de tener este helper (si no lo tienes, agrégalo al final de la clase)
   async existeArchivo(ruta) {
     try {
       await fs.access(ruta);
@@ -512,6 +513,7 @@ class CargaMasivaService {
       return false;
     }
   }
+
   estimarPaginas(buffer) {
     const texto = buffer.toString("latin1");
     const matches = texto.match(/\/Type\s*\/Page\b/g);
@@ -728,14 +730,22 @@ class CargaMasivaService {
                 ...resultado,
               });
             } catch (error) {
-              // ================================
-              //  ACTUALIZAR A FALLADO
-              // ================================
               if (proceso) {
-                await proceso.update({
-                  estado: "fallado",
-                  error: error.message,
-                });
+                // Solo marcar fallado si NO se creó el documento
+                if (!resultado?.documentoId) {
+                  await proceso.update({
+                    estado: "fallado",
+                    error: error.message,
+                  });
+                } else {
+                  // Si llegó a crear documento, marcar como completado aunque haya warning
+                  await proceso.update({
+                    estado: "completado",
+                    documento_id: resultado.documentoId,
+                    fecha_procesado: new Date(),
+                    error: `Warning: ${error.message} (pero documento creado)`
+                  });
+                }
               }
 
               resultados.fallidos++;
@@ -1146,7 +1156,7 @@ class CargaMasivaService {
         });
 
         // Crear estructura de carpetas
-        const estructura = this.construirEstructuraCarpetasNumericos({
+        const estructura = await this.construirEstructuraCarpetasNumericos({
           municipio: { id: autorizacionInfo.municipio.num },
           tipoAutorizacion: {
             id: autorizacionInfo.tipoAutorizacion.id,
