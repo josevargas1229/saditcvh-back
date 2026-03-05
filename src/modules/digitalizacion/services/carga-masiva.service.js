@@ -263,7 +263,7 @@ class CargaMasivaService {
       // Determinar si procesamos con OCR
       let bufferFinal = archivoData.buffer;
       let textoOCR = null;
-      let estadoOCR = useOcr ? "pendiente" : "no_aplica";
+      let estadoOCR = useOcr ? "pendiente" : "completado";
 
       if (useOcr) {
         estadoOCR = "procesando";
@@ -327,9 +327,7 @@ class CargaMasivaService {
       const pdfIdFinal = nombreArchivo.replace(/\.pdf$/i, '');
       console.log(`[NOTIF_SINCRONO] Actualizando ruta en Python: ${pdfIdFinal} → ${rutaArchivo}`);
 
-      await OCRProcessorService.actualizarRutaFinal(pdfIdFinal, rutaArchivo).catch(err => {
-        console.error(`[ERROR_NOTIF_SINCRONO] Falló para ${pdfIdFinal}:`, err);
-      });
+
 
       // Calcular checksums del archivo final
       const checksumMd5 = crypto
@@ -396,7 +394,9 @@ class CargaMasivaService {
       // }
 
       await transaction.commit();
-
+      await OCRProcessorService.actualizarRutaFinal(pdfIdFinal, rutaArchivo).catch(err => {
+        console.error(`[ERROR_NOTIF_SINCRONO] Falló para ${pdfIdFinal}:`, err);
+      });
       return {
         autorizacionId: autorizacion.id,
         numeroAutorizacion: autorizacion.numeroAutorizacion,
@@ -408,6 +408,12 @@ class CargaMasivaService {
         exito: true,
       };
     } catch (error) {
+      console.error("[ERROR_PROCESAR_ARCHIVO_MASIVO]", {
+        message: error.message,
+        name: error.name,
+        parent: error.parent?.message,
+        sql: error.sql,
+      });
       await transaction.rollback();
       throw error;
     }
