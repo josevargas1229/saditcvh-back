@@ -1244,19 +1244,10 @@ class CargaMasivaService {
           `[NOTIFICAR_PYTHON_FINAL] pdf_id versionado: ${pdfIdFinal} → ${rutaArchivo}`
         );
 
-        // Notificación PRINCIPAL (esto actualiza el ID en Python)
-        await OCRProcessorService.actualizarRutaFinal(pdfIdFinal, rutaArchivo).catch(err => {
-          console.error(`[ERROR_NOTIF_FINAL] Falló para ${pdfIdFinal}:`, err);
-        });
-
-        // Notificación secundaria (compatibilidad con el ID temporal)
-        if (pythonPdfId && pythonPdfId !== pdfIdFinal) {
-          console.log(`[NOTIF_COMPAT] Actualizando también ID temporal: ${pythonPdfId}`);
-          await OCRProcessorService.actualizarRutaFinal(pythonPdfId, rutaArchivo).catch(err => {
+        await OCRProcessorService.actualizarRutaFinal(pythonPdfId, rutaArchivo).catch(err => {
             console.warn(`[WARN_COMPAT] ${pythonPdfId}:`, err);
           });
-        }
-
+          
         const checksumMd5 = crypto.createHash("md5").update(pdfResult.pdfBuffer).digest("hex");
         const checksumSha256 = crypto.createHash("sha256").update(pdfResult.pdfBuffer).digest("hex");
 
