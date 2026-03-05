@@ -446,15 +446,55 @@ class CargaMasivaService {
     }
   }
 
-  generarNombreArchivoMasivo(autorizacion, nombreOriginal, version) {
+  async generarNombreArchivoMasivo(autorizacion, nombreOriginal, version) {
     const extension = path.extname(nombreOriginal);
     const timestamp = Date.now();
 
-    // Extraer componentes para asegurar el formato de puros guiones bajo
-    // nombreCarpeta contiene los verdaderos números ej "47" en lugar de su ID relacional ej "1".
+    // Detectar modo sin nomenclatura
+    const esSinNomenclatura = autorizacion.numeroAutorizacion?.startsWith('P-') ||
+      autorizacion.nombreCarpeta?.startsWith('P_');
+
+    if (esSinNomenclatura) {
+      // Limpiar nombre original
+      let baseName = path.basename(nombreOriginal, '.pdf')
+        .replace(/[^a-zA-Z0-9-_áéíóúÁÉÍÓÚñÑ ]/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+      if (!baseName) baseName = 'archivo_subido';
+
+      // Construir estructura de carpetas (ya la tienes)
+      const estructura = this.construirEstructuraCarpetasNumericos({
+        municipio: { id: autorizacion.municipio?.num || 85 },
+        tipoAutorizacion: {
+          id: autorizacion.tipoAutorizacion?.id || 1,
+          abreviatura: autorizacion.tipoAutorizacion?.abreviatura || 'P',
+        },
+        numero: autorizacion.numeroAutorizacion,
+        consecutivo: autorizacion.consecutivo1,
+        nombreCarpeta: autorizacion.nombreCarpeta,
+      });
+
+      const rutaCompleta = estructura.rutaCompleta; // ej: /storage/85/P/... 
+
+      // Verificar si ya existe y agregar (1), (2), etc.
+      let nombreFinal = `${baseName}${extension}`;
+      let contador = 1;
+      let rutaCandidata = path.join(rutaCompleta, nombreFinal);
+
+      while (await this.existeArchivo(rutaCandidata)) {
+        nombreFinal = `${baseName} (${contador})${extension}`;
+        rutaCandidata = path.join(rutaCompleta, nombreFinal);
+        contador++;
+      }
+
+      return nombreFinal;
+    }
+
+    // Modo normal (con nomenclatura) → mantener original
     let nombreBase = "auth_desconocido";
     if (autorizacion.nombreCarpeta) {
-      // Convertir cualquier espacio o guión en guión bajo: Ej "7365 04-11-07-001 C" -> "7365_04_11_07_001_C"
       nombreBase = autorizacion.nombreCarpeta.replace(/[\s-]/g, "_");
     } else {
       nombreBase = `auth_${autorizacion.id || "err"}`;
@@ -463,6 +503,15 @@ class CargaMasivaService {
     return `${nombreBase}_v${version}_${timestamp}${extension}`;
   }
 
+  // Helper nuevo: verificar si el archivo ya existe en disco
+  async existeArchivo(ruta) {
+    try {
+      await fs.access(ruta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   estimarPaginas(buffer) {
     const texto = buffer.toString("latin1");
     const matches = texto.match(/\/Type\s*\/Page\b/g);
