@@ -449,59 +449,65 @@ class CargaMasivaService {
   async generarNombreArchivoMasivo(autorizacion, nombreOriginal, version) {
     const extension = path.extname(nombreOriginal);
 
-    // Detectar si es modo sin nomenclatura (fallback P-...)
-    const esSinNomenclatura = autorizacion.numeroAutorizacion?.startsWith('P-') ||
+    const esSinNomenclatura =
+      autorizacion.numeroAutorizacion?.startsWith('P-') ||
       autorizacion.nombreCarpeta?.startsWith('P_');
 
+    let baseName;
+
     if (esSinNomenclatura) {
-      // Limpiar nombre original para que sea seguro en disco
-      let baseName = path.basename(nombreOriginal, '.pdf')
-        .replace(/[^a-zA-Z0-9-_áéíóúÁÉÍÓÚñÑ\s]/g, '_')   // permitir acentos, ñ, espacios
-        .replace(/\s+/g, '_')                              // espacios → _
-        .replace(/_+/g, '_')                               // evitar múltiples _
-        .replace(/^_+|_+$/g, '');                          // quitar _ sobrantes
+      baseName = path.basename(nombreOriginal, '.pdf')
+        .replace(/[^a-zA-Z0-9-_áéíóúÁÉÍÓÚñÑ\s]/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
 
       if (!baseName) baseName = 'archivo_subido';
 
-      // Obtener ruta completa de la carpeta destino
-      const estructura = await this.construirEstructuraCarpetasNumericos({
-        municipio: { id: autorizacion.municipio?.num || 85 },
-        tipoAutorizacion: {
-          id: autorizacion.tipoAutorizacion?.id || 1,
-          abreviatura: autorizacion.tipoAutorizacion?.abreviatura || 'P',
-        },
-        numero: autorizacion.numeroAutorizacion,
-        consecutivo: autorizacion.consecutivo1,
-        nombreCarpeta: autorizacion.nombreCarpeta,
-      });
-
-      const rutaCompleta = estructura.rutaCompleta;
-
-      // Empezar con nombre original
-      let nombreFinal = `${baseName}${extension}`;
-      let contador = 1;
-      let rutaCandidata = path.join(rutaCompleta, nombreFinal);
-
-      // Si ya existe → agregar (1), (2), etc.
-      while (await this.existeArchivo(rutaCandidata)) {
-        nombreFinal = `${baseName} (${contador})${extension}`;
-        rutaCandidata = path.join(rutaCompleta, nombreFinal);
-        contador++;
-      }
-
-      return nombreFinal;
-    }
-
-    // Modo con nomenclatura → mantener como siempre (prefijo + v + timestamp)
-    let nombreBase = "auth_desconocido";
-    if (autorizacion.nombreCarpeta) {
-      nombreBase = autorizacion.nombreCarpeta.replace(/[\s-]/g, "_");
+      // Siempre agregamos la versión por defecto en sin nomenclatura
+      // Esto reduce mucho las colisiones
+      baseName = `${baseName}_v${version}`;
     } else {
-      nombreBase = `auth_${autorizacion.id || "err"}`;
+      baseName = autorizacion.nombreCarpeta?.replace(/[\s-]/g, "_") ||
+        `auth_${autorizacion.id || "err"}`;
+      baseName = `${baseName}_v${version}`;
     }
 
-    const timestamp = Date.now();
-    return `${nombreBase}_v${version}_${timestamp}${extension}`;
+    // Obtenemos la ruta (await obligatorio)
+    const estructura = await this.construirEstructuraCarpetasNumericos({
+      municipio: { id: autorizacion.municipio?.num || 85 },
+      tipoAutorizacion: {
+        id: autorizacion.tipoAutorizacion?.id || 1,
+        abreviatura: autorizacion.tipoAutorizacion?.abreviatura || 'P',
+      },
+      numero: autorizacion.numeroAutorizacion,
+      consecutivo: autorizacion.consecutivo1,
+      nombreCarpeta: autorizacion.nombreCarpeta,
+    });
+
+    const rutaCompleta = estructura.rutaCompleta;
+
+    // Nombre inicial (ya incluye _vN)
+    let nombreFinal = `${baseName}${extension}`;
+    let rutaCandidata = path.join(rutaCompleta, nombreFinal);
+    let contador = 1;
+
+    // Bucle defensivo: verificamos existencia real en disco
+    while (await this.existeArchivo(rutaCandidata)) {
+      if (esSinNomenclatura) {
+        nombreFinal = `${baseName} (${contador})${extension}`;
+      } else {
+        nombreFinal = `${baseName}_${contador}${extension}`;
+      }
+      rutaCandidata = path.join(rutaCompleta, nombreFinal);
+      contador++;
+    }
+
+    // Log muy útil para depurar
+    console.log(`[NOMBRE_GENERADO] ${nombreFinal} → ruta: ${rutaCandidata}`);
+    console.log(`[EXISTE_ANTES_ESCRITURA] ${await this.existeArchivo(rutaCandidata)}`);
+
+    return nombreFinal;
   }
 
   // Asegúrate de tener este helper (si no lo tienes, agrégalo al final de la clase)
