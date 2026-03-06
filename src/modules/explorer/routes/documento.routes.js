@@ -9,6 +9,9 @@ const {
   restrictTo,
 } = require("../../auth/middlewares/auth.middleware");
 
+const checkPermission = require("../../auth/middlewares/permission.middleware");
+const verifyDocumentMunicipality = require("../../auth/middlewares/documentPermission.middleware");
+
 router.use(protect);
 
 // =====================
@@ -30,6 +33,8 @@ router.post("/", upload.single("archivo"), documentoController.crear);
 router.post(
   "/:id/version",
   upload.single("archivo"),
+  verifyDocumentMunicipality,
+  checkPermission("editar"),
   documentoController.crearVersion,
 );
 
@@ -49,6 +54,8 @@ router.delete(
 // =====================
 router.get(
   "/archivo/:archivoId/descargar",
+  verifyDocumentMunicipality,
+  checkPermission("descargar"),
   documentoController.descargarArchivo,
 );
 
