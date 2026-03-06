@@ -165,9 +165,10 @@ class CargaMasivaService {
         );
       }
 
-      // **MODIFICACIÓN: Buscar autorización por la combinación de datos**
+      // **MODIFICACIÓN: Buscar autorización por la combinación de datos, INCLUYENDO numeroAutorizacion**
       let autorizacion = await this.autorizacionModel.findOne({
         where: {
+          numeroAutorizacion: datosArchivo.numeroAutorizacion,
           municipioId: municipio.id,
           modalidadId: modalidad.id,
           tipoId: tipoAutorizacion.id,
@@ -202,6 +203,7 @@ class CargaMasivaService {
           if (createError.name === "SequelizeUniqueConstraintError") {
             autorizacion = await this.autorizacionModel.findOne({
               where: {
+                numeroAutorizacion: datosArchivo.numeroAutorizacion,
                 municipioId: municipio.id,
                 modalidadId: modalidad.id,
                 tipoId: tipoAutorizacion.id,
@@ -972,6 +974,7 @@ class CargaMasivaService {
 
       let autorizacion = await this.autorizacionModel.findOne({
         where: {
+          numeroAutorizacion: datosArchivo.numeroAutorizacion,
           municipioId: municipio.id,
           modalidadId: modalidad.id,
           tipoId: tipoAutorizacion.id,
@@ -1844,13 +1847,22 @@ class CargaMasivaService {
       // Modo sin nomenclatura → fallback silencioso
       console.warn(`[SIN NOMENCLATURA] Nombre inválido (${nombreArchivo}) → usando fallback P-85-01`);
 
+      // Para "Sin Nomenclatura", generamos valores únicos para asegurar que cada archivo
+      // cree su propia autorización y por tanto su propia carpeta.
+      const randomUuid = crypto.randomUUID();
+      const uniqueSuffix = randomUuid.split('-')[0]; // Primeros 8 chars = hex
+      
+      // Convertimos partes del UUID a números para los consecutivos
+      const consecutivo1Rand = parseInt(randomUuid.slice(0, 4), 16) % 10000;
+      const consecutivo2Rand = parseInt(randomUuid.slice(4, 8), 16) % 10000;
+
       return {
-        numeroAutorizacion: `P-${Date.now()}`,
+        numeroAutorizacion: `P-${uniqueSuffix}`,
         municipioNum: municipioFallbackNum,
         modalidadNum: modalidadFallbackNum,
         tipoAbrev: tipoFallbackAbrev,
-        consecutivo1: '00',
-        consecutivo2: '000',
+        consecutivo1: consecutivo1Rand,
+        consecutivo2: consecutivo2Rand,
         nombreOriginal: nombreArchivo,
       };
     }
