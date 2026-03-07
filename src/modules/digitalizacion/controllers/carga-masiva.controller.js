@@ -53,16 +53,9 @@ class CargaMasivaController {
         });
       }
 
-      // 2) Regla NORMAL: si hay 1 inválido => se rechaza TODO (OCR ON u OFF)
-      const invalidos = archivos.filter((a) => a.errorNomenclatura);
-      if (invalidos.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Fallo al subir: hay PDFs dentro del ZIP que no cumplen la nomenclatura obligatoria.",
-          invalidos: invalidos.map((a) => a.nombreOriginal || a.nombre),
-        });
-      }
+      // 2) SE ELIMINA el rechazo global por nomenclatura inválida
+      // Esto permite que el servicio registre los inválidos en la base de datos
+      // para que el usuario pueda ver exactamente qué archivos fallaron en el ZIP.
 
       // [NUEVA VALIDACIÓN DE PERMISOS "SUBIR"]
       const archivosParsedParaPermisos = archivos.map((a) =>
