@@ -206,7 +206,10 @@ class DocumentoController {
       const { id, versionId } = req.params;
       const userId = req.user.id;
 
-      await documentoService.eliminarVersionDocumento(id, versionId);
+      const versionEliminada = await documentoService.eliminarVersionDocumento(
+        id,
+        versionId,
+      );
 
       await auditService.createLog(req, {
         action: "DELETE_DOCUMENT_VERSION",
@@ -214,6 +217,8 @@ class DocumentoController {
         entityId: versionId,
         details: {
           message: "Se eliminó lógicamente una versión del documento",
+          DOCUMENT_NAME: versionEliminada.titulo || "Desconocido",
+          VERSION_NUMBER: `v${versionEliminada.version || "?"}`,
           documentId: id,
           versionId: versionId,
           deletedBy: userId,
