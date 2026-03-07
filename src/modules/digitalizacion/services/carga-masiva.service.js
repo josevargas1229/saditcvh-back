@@ -165,10 +165,9 @@ class CargaMasivaService {
         );
       }
 
-      // **MODIFICACIÓN: Buscar autorización por la combinación de datos, INCLUYENDO numeroAutorizacion**
+      // **MODIFICACIÓN: Buscar autorización por la combinación de datos**
       let autorizacion = await this.autorizacionModel.findOne({
         where: {
-          numeroAutorizacion: datosArchivo.numeroAutorizacion,
           municipioId: municipio.id,
           modalidadId: modalidad.id,
           tipoId: tipoAutorizacion.id,
@@ -203,7 +202,6 @@ class CargaMasivaService {
           if (createError.name === "SequelizeUniqueConstraintError") {
             autorizacion = await this.autorizacionModel.findOne({
               where: {
-                numeroAutorizacion: datosArchivo.numeroAutorizacion,
                 municipioId: municipio.id,
                 modalidadId: modalidad.id,
                 tipoId: tipoAutorizacion.id,
@@ -289,11 +287,22 @@ class CargaMasivaService {
       }
 
       // Buscar si ya existe documento para esta autorización
+      const esSinNomenclatura = archivoData.esSinNomenclatura;
+      const nombreOriginal = archivoData.nombreOriginal || archivoData.nombre;
+
+      let whereClause = {
+        autorizacionId: autorizacion.id,
+        version_actual: true,
+      };
+
+      if (esSinNomenclatura && nombreOriginal) {
+        whereClause.descripcion = {
+          [Op.like]: `%${nombreOriginal}%`
+        };
+      }
+
       const documentoExistente = await this.documentoModel.findOne({
-        where: {
-          autorizacionId: autorizacion.id,
-          version_actual: true,
-        },
+        where: whereClause,
         transaction,
       });
 
@@ -687,21 +696,26 @@ class CargaMasivaService {
       // Para OCR, procesar secuencialmente o en lotes pequeños
       if (useOcr) {
         // Procesar uno por uno para no saturar Python
+        let ocrIndex = 0;
         for (const archivo of archivos) {
           try {
-            const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+            const datosArchivo = await this.obtenerDatosArchivo(archivo.nombre, {
               allowSinNomenclatura: opciones.allowSinNomenclatura || false,
               municipioFallbackNum: opciones.municipioFallbackNum,
               modalidadFallbackNum: opciones.modalidadFallbackNum,
               tipoFallbackAbrev: opciones.tipoFallbackAbrev,
-            });
+            }, ocrIndex++);
             const autorizacionInfo = await this.buscarOCrearAutorizacion(
               datosArchivo,
               userId,
             );
 
             const resultado = await this.procesarArchivoMasivo(
-              { ...archivo, nombreOriginal: datosArchivo.nombreOriginal },
+              { 
+                ...archivo, 
+                nombreOriginal: datosArchivo.nombreOriginal,
+                esSinNomenclatura: datosArchivo.esSinNomenclatura
+              },
               autorizacionInfo,
               userId,
               { useOcr: true }, // Pasar opción de OCR
@@ -726,17 +740,17 @@ class CargaMasivaService {
         // Procesamiento normal en lotes paralelos
         for (let i = 0; i < archivos.length; i += loteSize) {
           const lote = archivos.slice(i, i + loteSize);
-          const promesas = lote.map(async (archivo) => {
+          const promesas = lote.map(async (archivo, localIndex) => {
             let proceso = null; // importante para poder actualizarlo en catch
             let resultado = null;
             try {
               // Parsear nombre del archivo
-              const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+              const datosArchivo = await this.obtenerDatosArchivo(archivo.nombre, {
                 allowSinNomenclatura: opciones.allowSinNomenclatura || false,
                 municipioFallbackNum: opciones.municipioFallbackNum,
                 modalidadFallbackNum: opciones.modalidadFallbackNum,
                 tipoFallbackAbrev: opciones.tipoFallbackAbrev,
-              });
+              }, i + localIndex);
 
               // Buscar o crear autorización
               const autorizacionInfo = await this.buscarOCrearAutorizacion(
@@ -769,6 +783,7 @@ class CargaMasivaService {
                 {
                   ...archivo,
                   nombreOriginal: datosArchivo.nombreOriginal,
+                  esSinNomenclatura: datosArchivo.esSinNomenclatura,
                 },
                 autorizacionInfo,
                 userId,
@@ -848,7 +863,7 @@ class CargaMasivaService {
   ) {
     try {
       // Extraer archivos del comprimido
-      const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+      const datosArchivo = await this.obtenerDatosArchivo(archivo.nombre, {
         allowSinNomenclatura: opciones?.allowSinNomenclatura || false,
         municipioFallbackNum: opciones?.municipioFallbackNum,
         modalidadFallbackNum: opciones?.modalidadFallbackNum,
@@ -861,14 +876,15 @@ class CargaMasivaService {
 
       // Crear registros de lote en la base de datos
       const procesos = [];
+      let asuncIndex = 0;
 
       for (const archivo of archivos) {
         try {
 
-          const datosArchivo = this.obtenerDatosArchivo(archivo.nombre, {
+          const datosArchivo = await this.obtenerDatosArchivo(archivo.nombre, {
             allowSinNomenclatura: false, // Para ZIP normal asumimos modo estricto
             // Si más adelante quieres ZIP sin nomenclatura, pasa la opción desde el controller
-          });
+          }, asuncIndex++);
           // Buscar o crear autorización (sin transacción larga)
           const autorizacionInfo = await this.buscarOCrearAutorizacionRapido(
             datosArchivo,
@@ -907,7 +923,11 @@ class CargaMasivaService {
 
           // Enviar a Python para OCR (en segundo plano)
           this.enviarArchivoParaOCR(
-            archivo,
+            {
+              ...archivo,
+              esSinNomenclatura: datosArchivo.esSinNomenclatura,
+              nombreOriginal: datosArchivo.nombreOriginal,
+            },
             proceso,
             autorizacionInfo,
             userId,
@@ -974,7 +994,6 @@ class CargaMasivaService {
 
       let autorizacion = await this.autorizacionModel.findOne({
         where: {
-          numeroAutorizacion: datosArchivo.numeroAutorizacion,
           municipioId: municipio.id,
           modalidadId: modalidad.id,
           tipoId: tipoAutorizacion.id,
@@ -1212,11 +1231,22 @@ class CargaMasivaService {
       const transaction = await this.documentoModel.sequelize.transaction();
 
       try {
+        const esSinNomenclatura = archivoData.esSinNomenclatura || proceso.metadata?.datosArchivo?.esSinNomenclatura;
+        const nombreOriginal = archivoData.nombreOriginal || proceso.metadata?.datosArchivo?.nombreOriginal || archivoData.nombre;
+
+        let whereClause = {
+          autorizacionId: autorizacionInfo.autorizacion.id,
+          version_actual: true,
+        };
+
+        if (esSinNomenclatura && nombreOriginal) {
+          whereClause.descripcion = {
+            [Op.like]: `%${nombreOriginal}%`
+          };
+        }
+
         const documentoExistente = await this.documentoModel.findOne({
-          where: {
-            autorizacionId: autorizacionInfo.autorizacion.id,
-            version_actual: true,
-          },
+          where: whereClause,
           transaction,
         });
 
@@ -1634,17 +1664,18 @@ class CargaMasivaService {
   async iniciarProcesamientoDirectoOCRAsincrono(archivos, userId, loteId) {
     try {
       const procesos = [];
+      let directoIndex = 0;
 
       for (const archivo of archivos) {
         let autorizacionInfo = null;
 
         try {
-          const datosArchivo = this.obtenerDatosArchivo(archivo.originalname, {
+          const datosArchivo = await this.obtenerDatosArchivo(archivo.originalname, {
             allowSinNomenclatura: true,  // porque este método se llama SOLO desde el flujo sin-nomenclatura
             municipioFallbackNum: 85,
             modalidadFallbackNum: 52,
             tipoFallbackAbrev: 'P'
-          });
+          }, directoIndex++);
           autorizacionInfo = await this.buscarOCrearAutorizacionRapido(
             datosArchivo,
             userId,
@@ -1670,6 +1701,8 @@ class CargaMasivaService {
               buffer: archivo.buffer,
               nombre: archivo.originalname,
               tamano: archivo.size,
+              esSinNomenclatura: datosArchivo.esSinNomenclatura,
+              nombreOriginal: datosArchivo.nombreOriginal,
             },
             proceso,
             autorizacionInfo,
@@ -1827,7 +1860,7 @@ class CargaMasivaService {
  * Obtiene datos de autorización: intenta parsear el nombre,
  * si falla y allowSinNomenclatura=true → usa fallback
  */
-  obtenerDatosArchivo(nombreArchivo, opciones = {}) {
+  async obtenerDatosArchivo(nombreArchivo, opciones = {}, index = 0) {
     const {
       allowSinNomenclatura = false,
       municipioFallbackNum = 85,
@@ -1837,33 +1870,54 @@ class CargaMasivaService {
 
     try {
       // Intentamos parsear siempre (prioridad a datos reales)
-      return this.parsearNombreArchivo(nombreArchivo);
+      const parseado = this.parsearNombreArchivo(nombreArchivo);
+      parseado.esSinNomenclatura = false;
+      return parseado;
     } catch (err) {
       if (!allowSinNomenclatura) {
         // Modo estricto → propagamos el error
         throw err;
       }
 
-      // Modo sin nomenclatura → fallback silencioso
-      console.warn(`[SIN NOMENCLATURA] Nombre inválido (${nombreArchivo}) → usando fallback P-85-01`);
+      // Modo sin nomenclatura → fallback buscando el consecutivo más alto tipo P-1, P-2
+      const municipioInfo = await this.municipioModel.findOne({ where: { num: municipioFallbackNum } });
+      const modalidadInfo = await this.modalidadModel.findOne({ where: { num: modalidadFallbackNum } });
+      const tipoInfo = await this.tiposAutorizacionModel.findOne({ where: { abreviatura: tipoFallbackAbrev } });
 
-      // Para "Sin Nomenclatura", generamos valores únicos para asegurar que cada archivo
-      // cree su propia autorización y por tanto su propia carpeta.
-      const randomUuid = crypto.randomUUID();
-      const uniqueSuffix = randomUuid.split('-')[0]; // Primeros 8 chars = hex
+      let nextNumber = 1;
       
-      // Convertimos partes del UUID a números para los consecutivos
-      const consecutivo1Rand = parseInt(randomUuid.slice(0, 4), 16) % 10000;
-      const consecutivo2Rand = parseInt(randomUuid.slice(4, 8), 16) % 10000;
+      if (municipioInfo && modalidadInfo && tipoInfo) {
+        // Buscar las autorizaciones de este tipo para obtener el máximo consecutivo1
+        const maxAuth = await this.autorizacionModel.findOne({
+          where: {
+            municipioId: municipioInfo.id,
+            modalidadId: modalidadInfo.id,
+            tipoId: tipoInfo.id,
+          },
+          order: [['consecutivo1', 'DESC']],
+        });
+
+        if (maxAuth && maxAuth.consecutivo1) {
+          nextNumber = parseInt(maxAuth.consecutivo1, 10) + 1;
+        }
+      } else {
+        // Fallback porsi no encontramos los ids
+        nextNumber = Math.floor(Math.random() * 10000);
+      }
+
+      nextNumber += index; // Evitar colisiones en procesamientos masivos por lotes
+      const seqLabel = nextNumber.toString();
+      console.warn(`[SIN NOMENCLATURA] Nombre inválido (${nombreArchivo}) → usando fallback P-${seqLabel}`);
 
       return {
-        numeroAutorizacion: `P-${uniqueSuffix}`,
+        numeroAutorizacion: `P-${seqLabel}`,
         municipioNum: municipioFallbackNum,
         modalidadNum: modalidadFallbackNum,
         tipoAbrev: tipoFallbackAbrev,
-        consecutivo1: consecutivo1Rand,
-        consecutivo2: consecutivo2Rand,
+        consecutivo1: nextNumber,
+        consecutivo2: 0,
         nombreOriginal: nombreArchivo,
+        esSinNomenclatura: true,
       };
     }
   }
