@@ -7,44 +7,49 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../../../config/db");
 const { handleModelAudit } = require("../../audit/utils/auditHelper");
 
-const Permission = sequelize.define("Permission", {
-    id: { 
-        type: DataTypes.INTEGER, 
-        primaryKey: true, 
-        autoIncrement: true 
+const Permission = sequelize.define(
+  "Permission",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
     },
-    name: { 
-        type: DataTypes.STRING, 
-        allowNull: false, 
-        unique: true // 'ver', 'descargar', 'editar', 'eliminar', 'imprimir'
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true, // 'ver', 'descargar', 'editar', 'eliminar', 'subir'
     },
-    description: { 
-        type: DataTypes.STRING, 
-        allowNull: true
+    description: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
-    active: { 
-        type: DataTypes.BOOLEAN,
-        defaultValue: true 
+    active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
     },
-type: { 
-    type: DataTypes.STRING,
-    allowNull: false,
-    defaultValue: 'action',
-    field: 'permission_type'
-},
-
-
-}, {
+    type: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "action",
+      field: "permission_type",
+    },
+  },
+  {
     tableName: "permissions",
     schema: "public",
     timestamps: true,
     paranoid: true,
     underscored: true,
     hooks: {
-        afterCreate: (instance, options) => handleModelAudit(instance, options, 'CREATE'),
-        afterUpdate: (instance, options) => handleModelAudit(instance, options, 'UPDATE'),
-        afterDestroy: (instance, options) => handleModelAudit(instance, options, 'DELETE')
-    }
-});
+      afterCreate: (instance, options) =>
+        handleModelAudit(instance, options, "CREATE"),
+      afterUpdate: (instance, options) =>
+        handleModelAudit(instance, options, "UPDATE"),
+      afterDestroy: (instance, options) =>
+        handleModelAudit(instance, options, "DELETE"),
+    },
+  },
+);
 
 module.exports = Permission;
