@@ -745,7 +745,7 @@ class DocumentoService {
       await versionEliminar.destroy({ transaction });
 
       await transaction.commit();
-      return true;
+      return versionEliminar;
     } catch (error) {
       await transaction.rollback();
       throw new Error(
