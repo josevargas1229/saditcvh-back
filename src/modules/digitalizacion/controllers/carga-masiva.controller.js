@@ -30,10 +30,10 @@ class CargaMasivaController {
       const userId = req.user.id;
       const extension = path.extname(req.file.originalname).toLowerCase();
 
-      if (![".zip", ".rar"].includes(extension)) {
+      if (![".zip"].includes(extension)) {
         return res.status(400).json({
           success: false,
-          message: "Formato de archivo no soportado. Use ZIP o RAR",
+          message: "Formato de archivo no soportado. Únicamente se permiten archivos ZIP (los archivos RAR no están soportados).",
         });
       }
 
@@ -342,10 +342,10 @@ class CargaMasivaController {
 
       const userId = req.user.id;
       const extension = path.extname(req.file.originalname).toLowerCase();
-      if (![".zip", ".rar"].includes(extension)) {
+      if (![".zip"].includes(extension)) {
         return res.status(400).json({
           success: false,
-          message: "Formato de archivo no soportado. Use ZIP o RAR",
+          message: "Formato de archivo no soportado. Únicamente se permiten archivos ZIP (los archivos RAR no están soportados).",
         });
       }
 
