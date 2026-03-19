@@ -130,7 +130,12 @@ class CargaMasivaController {
   // Procesar múltiples archivos PDF directamente - NORMAL (estricto)
   async procesarArchivosMultiples(req, res) {
     try {
+      console.log(`\n======================================================`);
+      console.log(`[LOG-SUBIDA] [1] RECIBIENDO PETICIÓN MULTIPLE (DIRECTA)`);
+      console.log(`[LOG-SUBIDA] Archivos recibidos: ${req.files ? req.files.length : 0}`);
+      
       if (!req.files || req.files.length === 0) {
+        console.log(`[LOG-SUBIDA] RECHAZADO: No se proporcionaron archivos.`);
         return res
           .status(400)
           .json({ success: false, message: "No se proporcionaron archivos" });
@@ -138,6 +143,7 @@ class CargaMasivaController {
 
       const userId = req.user.id;
       const useOcr = req.body.useOcr === "true";
+      console.log(`[LOG-SUBIDA] Usuario: ${userId} | OCR_ON: ${useOcr}`);
 
       // Filtrar solo PDFs
       const archivosPDF = req.files.filter(
@@ -163,6 +169,7 @@ class CargaMasivaController {
       }
 
       if (invalidos.length > 0) {
+        console.log(`[LOG-SUBIDA] ERROR NOMENCLATURA: Archivos inválidos detectados:`, invalidos);
         return res.status(400).json({
           success: false,
           message:
@@ -172,6 +179,7 @@ class CargaMasivaController {
       }
 
       // [NUEVA VALIDACIÓN DE PERMISOS "SUBIR"]
+      console.log(`[LOG-SUBIDA] [2] Iniciando validación de permisos "subir"...`);
       const archivosParsedParaPermisos = archivosPDF.map((f) =>
         CargaMasivaService.parsearNombreArchivoSafe(f.originalname),
       );
@@ -181,10 +189,12 @@ class CargaMasivaController {
         false,
       );
       if (!permisoCheck.success) {
+        console.error(`[LOG-SUBIDA] PERMISOS DENEGADOS: ${permisoCheck.message}`);
         return res
           .status(403)
           .json({ success: false, message: permisoCheck.message });
       }
+      console.log(`[LOG-SUBIDA] Permisos OK. Procesando archivos...`);
 
       // OCR ON => asíncrono
       if (useOcr) {
@@ -220,6 +230,7 @@ class CargaMasivaController {
 
       // OCR OFF => sincrónico
       const loteId = `lote_sync_${Date.now()}_${userId}`;
+      console.log(`[LOG-SUBIDA] [4] Ruta Sincrónica activada (Lote: ${loteId}). Llamando a procesarArchivosDirectos...`);
 
       const resultados = await CargaMasivaService.procesarArchivosDirectos(
         archivosPDF,
@@ -231,6 +242,8 @@ class CargaMasivaController {
           allowSinNomenclatura: false,
         },
       );
+
+      console.log(`[LOG-SUBIDA] [5] Carga Sincrónica FINALIZADA. Exitosos: ${resultados?.exitosos}, Fallidos: ${resultados?.fallidos}`);
 
       return res.json({
         success: true,

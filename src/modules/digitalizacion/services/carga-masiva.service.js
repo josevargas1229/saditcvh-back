@@ -343,10 +343,12 @@ class CargaMasivaService {
     opciones = {},
   ) {
     const { useOcr = false } = opciones;
+    console.log(`\n  [LOG-SERVICIO] -> Procesando archivo: ${archivoData.nombreOriginal || archivoData.nombre}`);
     const transaction = await this.documentoModel.sequelize.transaction();
 
     try {
       const { autorizacion, municipio, tipoAutorizacion } = autorizacionInfo;
+      console.log(`  [LOG-SERVICIO] -> Creando transacción DB local para ${archivoData.nombre}`);
 
       // Determinar si procesamos con OCR
       let bufferFinal = archivoData.buffer;
@@ -421,8 +423,10 @@ class CargaMasivaService {
 
       const rutaArchivo = path.join(estructura.rutaCompleta, nombreArchivo);
 
+      console.log(`  [LOG-SERVICIO] -> Escribiendo archivo FÍSICO (Size: ${bufferFinal.length} bytes) en: ${rutaArchivo}`);
       // Guardar archivo físicamente (con OCR aplicado si corresponde)
       await fs.writeFile(rutaArchivo, bufferFinal);
+      console.log(`  [LOG-SERVICIO] -> Archivo físico guardado con éxito.`);
 
       // Después de escribir el archivo en disco
       const pdfIdFinal = nombreArchivo.replace(/\.pdf$/i, "");
@@ -449,6 +453,7 @@ class CargaMasivaService {
       }
 
       // Crear nuevo documento
+      console.log(`  [LOG-SERVICIO] -> Guardando DB \`Documento\` -> version: ${version}`);
       const nuevoDocumento = await this.documentoModel.create(
         {
           autorizacionId: autorizacion.id,
@@ -467,6 +472,7 @@ class CargaMasivaService {
       );
 
       // Crear registro de archivo digital
+      console.log(`  [LOG-SERVICIO] -> Guardando DB \`ArchivoDigital\``);
       const archivoDigital = await this.archivoDigitalModel.create(
         {
           documento_id: nuevoDocumento.id,
@@ -494,6 +500,7 @@ class CargaMasivaService {
       //     await this.guardarTextoOCR(nuevoDocumento.id, textoOCR, transaction);
       // }
 
+      console.log(`  [LOG-SERVICIO] -> \`commit()\` DB completado. Archivo procesado.`);
       await transaction.commit();
       await OCRProcessorService.actualizarRutaFinal(
         pdfIdFinal,
@@ -518,6 +525,7 @@ class CargaMasivaService {
         parent: error.parent?.message,
         sql: error.sql,
       });
+      console.log(`  [LOG-SERVICIO] -> Ejecutando \`rollback()\` DB por error en ${archivoData.nombre}`);
       await transaction.rollback();
       throw error;
     }
