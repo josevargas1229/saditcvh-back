@@ -126,24 +126,34 @@ crearAutorizacion = async (autorizacionData) => {
 			const {
 				search,
 				campos = [],
-				exactMatch = false
+				exactMatch = false,
+				page = 1,
+				limit = 10
 			} = opciones;
+
 			if(!search) {
 				throw {
 					status: 400,
 					message: 'Término de búsqueda requerido'
 				};
 			}
+
+			const offset = (page - 1) * limit;
+
 			const normalizarNombreCarpeta = (texto) => {
 				return texto.replace(/[-\s]/g, '_').replace(/_/g, '\\_');
 			};
+
 			const searchCondition = exactMatch ? search : {
 				[Op.iLike]: `%${search}%`
 			};
+
 			const whereClause = {
 				[Op.or]: []
 			};
+
 			const validFields = ['numeroAutorizacion', 'nombreCarpeta', 'solicitante', 'estado'];
+
 			if(campos.length > 0) {
 				campos.forEach(campo => {
 					if(!validFields.includes(campo)) return;
@@ -180,6 +190,24 @@ crearAutorizacion = async (autorizacionData) => {
 					'$tipoAutorizacion.nombre$': searchCondition
 				}];
 			}
+
+			const totalItems = await this.autorizacionModel.count({
+				where: whereClause,
+				include: [{
+					model: this.municipioModel,
+					as: 'municipio',
+					required: false
+				}, {
+					model: this.modalidadModel,
+					as: 'modalidad',
+					required: false
+				}, {
+					model: this.tiposAutorizacionModel,
+					as: 'tipoAutorizacion',
+					required: false
+				}]
+			});
+
 			const autorizaciones = await this.autorizacionModel.findAll({
 				where: whereClause,
 				include: [{
@@ -198,7 +226,8 @@ crearAutorizacion = async (autorizacionData) => {
 					attributes: ['id', 'nombre', 'abreviatura'],
 					required: false
 				}],
-				limit: 50,
+				limit: parseInt(limit),
+				offset: offset,
 				order: [
 					['id', 'DESC']
 				],
@@ -206,7 +235,14 @@ crearAutorizacion = async (autorizacionData) => {
 					exclude: ['createdAt', 'updatedAt']
 				}
 			});
-			return autorizaciones;
+
+			return {
+				autorizaciones,
+				currentPage: page,
+				totalPages: Math.ceil(totalItems / limit),
+				totalItems,
+				itemsPerPage: limit
+			};
 		}
 		catch (error) {
 			console.error('Error en buscarAutorizaciones:', error);
