@@ -12,16 +12,26 @@ class AutorizacionController {
                 campos = [],
                 exactMatch = false
             } = req.body;
-            const autorizaciones = await this.autorizacionService.buscarAutorizaciones({
+            const { page = 1, limit = 10 } = req.query;
+
+            const result = await this.autorizacionService.buscarAutorizaciones({
                 search,
                 campos,
-                exactMatch
+                exactMatch,
+                page: parseInt(page),
+                limit: parseInt(limit)
             });
 
             res.status(200).json({
                 success: true,
                 message: 'Búsqueda completada exitosamente',
-                data: autorizaciones
+                data: result.autorizaciones,
+                pagination: {
+                    currentPage: result.currentPage,
+                    totalPages: result.totalPages,
+                    totalItems: result.totalItems,
+                    itemsPerPage: result.itemsPerPage
+                }
             });
         } catch (error) {
             res.status(error.status || 500).json({
