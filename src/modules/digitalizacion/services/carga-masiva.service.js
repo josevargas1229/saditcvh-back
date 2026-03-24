@@ -853,24 +853,6 @@ class CargaMasivaService {
             let proceso = null; // importante para poder actualizarlo en catch
             let resultado = null;
             try {
-              // ================================
-              //  CREAR REGISTRO TEMPRANO (ANTES DE PARSEAR)
-              // ================================
-              proceso = await this.ocrProcesoModel.create({
-                lote_id: loteId || `lote_sync_${Date.now()}_${userId}`,
-                archivo_id: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                nombre_archivo: archivo.nombre,
-                autorizacion_id: 0, // Se asigna luego si es válido
-                user_id: userId,
-                estado: "procesando",
-                tipo_proceso: "NORMAL",
-                origen: origen,
-                metadata: {
-                  useOcr,
-                  tamano: archivo.tamano,
-                },
-              });
-
               // Parsear nombre del archivo
               const datosArchivo = await this.obtenerDatosArchivo(
                 archivo.nombre,
@@ -936,23 +918,6 @@ class CargaMasivaService {
                     error: `Warning: ${error.message} (pero documento creado)`,
                   });
                 }
-              } else {
-                // Por si falló antes del .create inicial
-                await this.ocrProcesoModel.create({
-                  lote_id: loteId || `lote_sync_${Date.now()}_${userId}`,
-                  archivo_id: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  nombre_archivo: archivo.nombre,
-                  autorizacion_id: 0,
-                  user_id: userId,
-                  estado: "fallado",
-                  error: error.message,
-                  tipo_proceso: "NORMAL",
-                  origen: origen,
-                  metadata: {
-                    useOcr,
-                    tamano: archivo.tamano,
-                  },
-                });
               }
 
               resultados.fallidos++;
@@ -1003,23 +968,7 @@ class CargaMasivaService {
       let asuncIndex = 0;
 
       for (const archivo of archivos) {
-        let autorizacionInfo = null;
-        let proceso = null;
-
         try {
-          proceso = await this.ocrProcesoModel.create({
-            lote_id: loteId,
-            archivo_id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            nombre_archivo: archivo.nombre || archivo.originalname,
-            autorizacion_id: 0,
-            user_id: userId,
-            estado: "pendiente",
-            metadata: {
-              tamano: archivo.tamano || archivo.size,
-              rutaRelativa: archivo.rutaRelativa,
-            },
-          });
-
           const datosArchivo = await this.obtenerDatosArchivo(
             archivo.nombre,
             {
@@ -1057,30 +1006,17 @@ class CargaMasivaService {
             console.error(`Error procesando ${archivo.nombre}:`, error);
           });
         } catch (error) {
-          console.error(`Error preparando ** ${archivo.nombre || archivo.originalname}:`, error);
-          
-          if (proceso) {
-            await proceso.update({
-              estado: "fallado",
-              error: error.message,
-              metadata: {
-                ...proceso.metadata,
-                error: true
-              }
-            });
-          } else {
-             // Por si falló antes del .create inicial
-             await this.ocrProcesoModel.create({
-               lote_id: loteId,
-               archivo_id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-               nombre_archivo: archivo.nombre || archivo.originalname,
-               autorizacion_id: 0,
-               user_id: userId,
-               estado: "fallado",
-               error: error.message,
-               metadata: { error: true },
-             });
-          }
+          console.error(`Error preparando ** ${archivo.nombre}:`, error);
+          // Crear registro fallado
+          await this.ocrProcesoModel.create({
+            loteId,
+            nombreArchivo: archivo.nombre,
+            autorizacionId: null,
+            userId,
+            estado: "fallado",
+            error: error.message,
+            metadata: { error: true },
+          });
         }
       }
 
@@ -1636,6 +1572,14 @@ class CargaMasivaService {
     await this.reconciliarProcesosOCRPendientes(userId);
     const pythonResponse = await OCRProcessorService.listarProcesos();
     const pdfs = pythonResponse.pdfs || [];
+    
+    // Obtener total de lotes distintos para la paginación
+    const totalLotes = await this.ocrProcesoModel.count({
+      where: { user_id: userId },
+      distinct: true,
+      col: 'lote_id'
+    });
+
     const lotes = await this.ocrProcesoModel.findAll({
       where: { user_id: userId },
       attributes: [
@@ -1694,7 +1638,7 @@ class CargaMasivaService {
       offset,
       raw: true,
     });
-    return lotes.map((lote) => {
+    const lotesRes = lotes.map((lote) => {
       // Usar los PDFs del lote que Python conoce
       const procesosDelLote = pdfs.filter(
         (p) =>
@@ -1761,6 +1705,12 @@ class CargaMasivaService {
         ultimoProceso: lote.ultimoProceso,
       };
     });
+
+    return {
+      lotes: lotesRes,
+      total: totalLotes,
+      totalPages: Math.ceil(totalLotes / limit)
+    };
     // return lotes.map(lote => ({
     //     loteId: lote.loteId,
     //     tipoProceso: lote.tipoProceso,
