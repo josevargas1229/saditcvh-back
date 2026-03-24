@@ -19,7 +19,7 @@ const backupsRoutes = require('./modules/backups/routes/backups.routes');
 const path = require("path");
 
 const app = express();
-
+app.set('trust proxy', 1);
 app.disable("etag");
 app.use((req, res, next) => {
     res.removeHeader("Server");

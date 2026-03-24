@@ -16,10 +16,10 @@ const {
 
     cookieOptions: {
         httpOnly: true,
-        sameSite: "strict",
+        sameSite: "lax",
         path: "/",
         maxAge: 1000 * 60 * 60 * 2, // 2 horas
-        secure: process.env.NODE_ENV === "production",
+        secure: false,
     },
 });
 

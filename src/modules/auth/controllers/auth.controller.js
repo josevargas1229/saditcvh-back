@@ -17,8 +17,8 @@ const REFRESH_TOKEN_EXPIRATION = 1000 * 60 * 60 * 24 * 7; // 7 Días
  */
 const COOKIE_OPTIONS = {
     httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: "strict",
+    secure: false,
+    sameSite: "lax",
     path: "/", 
 };
 
