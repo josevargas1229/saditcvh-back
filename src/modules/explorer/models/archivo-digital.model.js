@@ -89,7 +89,7 @@ const ArchivoDigital = sequelize.define(
       field: "calidad_escaneo",
     },
     estado_ocr: {
-      type: DataTypes.ENUM("pendiente", "procesando", "completado", "error"),
+      type: DataTypes.ENUM("pendiente", "procesando", "completado", "fallido", "error"),
       defaultValue: "pendiente",
       field: "estado_ocr",
     },
@@ -139,6 +139,14 @@ const ArchivoDigital = sequelize.define(
     underscored: true,
     paranoid: true, // Se habilita deleted_at para soft delete
     deletedAt: "deleted_at",
+    indexes: [
+      {
+        // Índice para consultas de procesamiento por municipio:
+        // Permite filtrar rápidamente archivos pendientes agrupados por municipio
+        name: "idx_archivos_digitales_estado_ocr",
+        fields: ["estado_ocr"],
+      },
+    ],
   },
 );
 
